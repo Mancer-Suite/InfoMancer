@@ -1042,7 +1042,7 @@ class DeepFingerprintCorrelationService:
             generated_fingerprint_count=generated,
             manifest_artifact_id=manifest_id,
             coverage_complete=coverage_complete,
-            missing_file_ids=tuple(missing),
+            missing_file_ids=tuple(sorted(missing)),
             comparisons=tuple(comparisons),
             failures=tuple(failures),
         )
