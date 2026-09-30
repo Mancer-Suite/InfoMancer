@@ -3132,6 +3132,8 @@ class MediaIdentityDecisionService:
             }
 
         with self.database.connect() as conn:
+            if not conn.in_transaction:
+                conn.execute("BEGIN")
             scan, _, evidence = self._scan_snapshot(conn, int(scan_id))
             current_claimed = self._claimed_identity(scan)
             current_revision, current_digest = self._decision_token(
