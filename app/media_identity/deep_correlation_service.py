@@ -230,6 +230,9 @@ def _sequence_observation_payload(
         "support_count": item.support_count,
         "usable_count": item.usable_count,
         "support_ratio": item.support_ratio,
+        "planned_count": item.planned_count,
+        "coverage_ratio": item.coverage_ratio,
+        "coverage_sufficient": item.coverage_sufficient,
         "longest_chain": item.longest_chain,
         "first_claimed_episode": item.first_claimed_episode,
         "last_claimed_episode": item.last_claimed_episode,
@@ -588,6 +591,9 @@ class DeepCorrelationAnalysisService:
                 _hypothesis_payload(item)
                 for item in sequence.hypotheses
             ],
+            "catalog_claims": [
+                list(item) for item in sequence.catalog_claims
+            ],
             "missing_scan_file_ids": list(
                 sequence.missing_scan_file_ids
             ),
@@ -830,9 +836,17 @@ class DeepCorrelationAnalysisService:
                 raise DeepCorrelationAnalysisError(
                     "J4 fingerprint interpretation changed before publication."
                 )
+            planned_counts_by_season: dict[int, int] = {}
+            for _, season, _, _ in sequence.catalog_claims:
+                planned_counts_by_season[season] = (
+                    planned_counts_by_season.get(season, 0) + 1
+                )
             recomputed_sequence_analysis = detect_sequence_offsets(
                 sequence.hypotheses,
                 policy=self.sequence_policy,
+                planned_file_counts_by_season=(
+                    planned_counts_by_season or None
+                ),
             )
             if recomputed_sequence_analysis != sequence.analysis:
                 raise DeepCorrelationAnalysisError(
