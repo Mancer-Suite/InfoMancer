@@ -743,6 +743,36 @@ class DeepCorrelationAnalysisServiceTests(unittest.TestCase):
             after["deep_correlation_analysis"]
         )
 
+    def test_scan_detail_invalidates_j4_when_j3_manifest_disappears(self) -> None:
+        run = self.analysis_service.run(
+            self.scan_id
+        )
+        with self.database.connect() as conn:
+            payload = json.loads(conn.execute(
+                """SELECT payload_json
+                   FROM media_identity_artifacts
+                   WHERE id=?""",
+                (run.artifact_id,),
+            ).fetchone()["payload_json"])
+            video_manifest_id = int(
+                payload["identity"]["fingerprints"]["video"][
+                    "manifest_artifact_id"
+                ]
+            )
+            conn.execute(
+                "DELETE FROM media_identity_artifacts WHERE id=?",
+                (video_manifest_id,),
+            )
+
+        detail = self.decision_service.scan_detail(
+            self.scan_id
+        )
+
+        self.assertTrue(detail["snapshot_current"])
+        self.assertIsNone(
+            detail["deep_correlation_analysis"]
+        )
+
     def test_scan_detail_ignores_tampered_j4_artifact(self) -> None:
         run = self.analysis_service.run(
             self.scan_id
