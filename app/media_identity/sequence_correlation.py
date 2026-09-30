@@ -411,6 +411,7 @@ def detect_sequence_offsets(
     hypotheses: Iterable[SequenceHypothesis],
     *,
     policy: SequenceOffsetPolicy | None = None,
+    planned_file_counts_by_season: Mapping[int, int] | None = None,
 ) -> SequenceOffsetAnalysis:
     policy = policy or SequenceOffsetPolicy()
     prepared = tuple(hypotheses)
@@ -418,6 +419,25 @@ def detect_sequence_offsets(
         raise SequenceCorrelationError(
             "Sequence hypotheses must contain unique file IDs."
         )
+    planned_counts: dict[int, int] = {}
+    if planned_file_counts_by_season is not None:
+        if not isinstance(planned_file_counts_by_season, Mapping):
+            raise SequenceCorrelationError(
+                "Sequence planned cohort counts are malformed."
+            )
+        for season, count in planned_file_counts_by_season.items():
+            if (
+                isinstance(season, bool)
+                or not isinstance(season, int)
+                or season < 0
+                or isinstance(count, bool)
+                or not isinstance(count, int)
+                or count < 1
+            ):
+                raise SequenceCorrelationError(
+                    "Sequence planned cohort counts are invalid."
+                )
+            planned_counts[season] = count
 
     usable = [
         item for item in prepared
@@ -451,6 +471,26 @@ def detect_sequence_offsets(
                 continue
             by_offset.setdefault(offset, []).append(item)
 
+        planned_count = planned_counts.get(
+            season,
+            len([
+                item
+                for item in prepared
+                if item.claimed_season == season
+            ]),
+        )
+        if planned_count < len(season_hypotheses):
+            raise SequenceCorrelationError(
+                "Sequence planned cohort count is smaller than usable coverage."
+            )
+        coverage_ratio = (
+            len(season_hypotheses) / float(planned_count)
+            if planned_count
+            else 0.0
+        )
+        coverage_sufficient = (
+            coverage_ratio >= policy.minimum_cohort_coverage_ratio
+        )
         for offset, supporters in sorted(by_offset.items()):
             support_count = len(supporters)
             usable_count = len(season_hypotheses)
@@ -483,6 +523,9 @@ def detect_sequence_offsets(
                     longest_chain=chain,
                     first_claimed_episode=claimed_episodes[0],
                     last_claimed_episode=claimed_episodes[-1],
+                    planned_count=planned_count,
+                    coverage_ratio=coverage_ratio,
+                    coverage_sufficient=coverage_sufficient,
                 )
             )
 
@@ -509,6 +552,9 @@ def detect_sequence_offsets(
             longest_chain=item.longest_chain,
             first_claimed_episode=item.first_claimed_episode,
             last_claimed_episode=item.last_claimed_episode,
+            planned_count=item.planned_count,
+            coverage_ratio=item.coverage_ratio,
+            coverage_sufficient=item.coverage_sufficient,
             conflicted=item.season in conflict_set,
         )
         for item in provisional
