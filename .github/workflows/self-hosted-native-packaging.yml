@@ -1,0 +1,237 @@
+name: Self-Hosted Native Packaging
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Branch, tag, or exact SHA to package
+        required: true
+        default: testing/0.9-alpha
+  push:
+    branches:
+      - testing/0.9-alpha
+    paths:
+      - desktop/**
+      - app/**
+      - scripts/stage_ffprobe.py
+      - scripts/stage_ffmpeg.py
+      - requirements.txt
+      - .github/workflows/self-hosted-native-packaging.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-hosted-package-${{ github.repository }}
+  cancel-in-progress: false
+
+env:
+  TARGET_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.target_ref || github.sha }}
+
+jobs:
+  windows-preview:
+    name: Windows unsigned preview package
+    runs-on: [self-hosted, Windows, X64, infomancer-ci]
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact package target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_REF }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Verify Windows toolchain
+        shell: pwsh
+        run: |
+          python --version
+          node --version
+          npm --version
+          rustc --version
+          cargo --version
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller==6.21.0
+
+      - name: Build verified bundled core
+        shell: pwsh
+        run: |
+          python scripts/stage_ffprobe.py
+          python scripts/stage_ffmpeg.py
+          python -m PyInstaller --noconfirm --clean --onefile --noconsole --name infomancer-core --add-data "app/templates;app/templates" --add-data "app/static;app/static" --add-data "build/ffprobe/FFPROBE_LICENSE.txt;third-party/ffprobe" --add-data "build/ffprobe/FFPROBE_NOTICE.txt;third-party/ffprobe" --add-binary "build/ffprobe/ffprobe.exe;." --add-data "build/ffmpeg/FFMPEG_LICENSE.txt;third-party/ffmpeg" --add-data "build/ffmpeg/FFMPEG_NOTICE.txt;third-party/ffmpeg" --add-binary "build/ffmpeg/ffmpeg.exe;." desktop/sidecar.py
+          & .\dist\infomancer-core.exe --check-ffprobe
+          if ($LASTEXITCODE -ne 0) { throw "Bundled FFprobe self-check failed: $LASTEXITCODE" }
+          & .\dist\infomancer-core.exe --check-ffmpeg
+          if ($LASTEXITCODE -ne 0) { throw "Bundled FFmpeg self-check failed: $LASTEXITCODE" }
+          $triple = (rustc --print host-tuple).Trim()
+          New-Item -ItemType Directory -Force desktop/src-tauri/binaries | Out-Null
+          Copy-Item dist/infomancer-core.exe "desktop/src-tauri/binaries/infomancer-core-$triple.exe"
+
+      - name: Build Windows NSIS package
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          npm ci --prefer-offline
+          npm audit --audit-level=high
+          npm run icon
+          cargo check --manifest-path src-tauri/Cargo.toml --locked
+          npm run build
+
+      - name: Verify launcher subsystem and collect package
+        shell: pwsh
+        run: |
+          $env:INFOMANCER_PE = (Resolve-Path 'desktop/src-tauri/target/release/infomancer-desktop.exe').Path
+          python -c "import os,struct; data=open(os.environ['INFOMANCER_PE'],'rb').read(); pe=struct.unpack_from('<I',data,0x3c)[0]; subsystem=struct.unpack_from('<H',data,pe+24+68)[0]; print(f'Windows PE subsystem={subsystem}'); assert subsystem == 2"
+          $installer = Get-ChildItem 'desktop/src-tauri/target/release/bundle/nsis/*-setup.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'NSIS installer was not produced.' }
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          Copy-Item $installer.FullName release-assets/
+          $manifest = [ordered]@{
+            schema_version = 1
+            product = 'InfoMancer'
+            platform = 'windows-x64'
+            source_sha = (git rev-parse HEAD).Trim()
+            preview_only = $true
+            release_eligible = $false
+            reason = 'Unsigned self-hosted preview. Canonical release signing and destructive install/uninstall smoke tests remain isolated from personal self-hosted machines.'
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 release-assets/package-provenance.json
+
+      - name: Upload Windows preview package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: infomancer-windows-preview-${{ github.run_id }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  linux-preview:
+    name: Linux unsigned preview package
+    runs-on: [self-hosted, Linux, X64, infomancer-ci]
+    timeout-minutes: 90
+    steps:
+      - name: Check out exact package target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.TARGET_REF }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install Linux desktop build dependencies
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y             libwebkit2gtk-4.1-dev             libappindicator3-dev             librsvg2-dev             patchelf             binutils             appstream             desktop-file-utils
+
+      - name: Verify Linux toolchain
+        shell: bash
+        run: |
+          python --version
+          node --version
+          npm --version
+          rustc --version
+          cargo --version
+          ldd --version | head -n 1
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller==6.21.0
+
+      - name: Build verified bundled core
+        shell: bash
+        run: |
+          python scripts/stage_ffprobe.py
+          python scripts/stage_ffmpeg.py
+          python -m PyInstaller --noconfirm --clean --onefile --name infomancer-core --add-data "app/templates:app/templates" --add-data "app/static:app/static" --add-data "build/ffprobe/FFPROBE_LICENSE.txt:third-party/ffprobe" --add-data "build/ffprobe/FFPROBE_NOTICE.txt:third-party/ffprobe" --add-binary "build/ffprobe/ffprobe:." --add-data "build/ffmpeg/FFMPEG_LICENSE.txt:third-party/ffmpeg" --add-data "build/ffmpeg/FFMPEG_NOTICE.txt:third-party/ffmpeg" --add-binary "build/ffmpeg/ffmpeg:." desktop/sidecar.py
+          ./dist/infomancer-core --check-ffprobe
+          ./dist/infomancer-core --check-ffmpeg
+          triple="$(rustc --print host-tuple)"
+          mkdir -p desktop/src-tauri/binaries
+          cp dist/infomancer-core "desktop/src-tauri/binaries/infomancer-core-$triple"
+          chmod +x "desktop/src-tauri/binaries/infomancer-core-$triple"
+
+      - name: Build Linux DEB and AppImage
+        working-directory: desktop
+        shell: bash
+        run: |
+          npm ci --prefer-offline
+          npm audit --audit-level=high
+          npm run icon
+          cargo check --manifest-path src-tauri/Cargo.toml --locked
+          npm run tauri -- build --bundles deb,appimage
+
+      - name: Validate package metadata and compatibility provenance
+        shell: bash
+        run: |
+          deb="$(find desktop/src-tauri/target/release/bundle/deb -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          appimage="$(find desktop/src-tauri/target/release/bundle/appimage -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          test -n "$deb"
+          test -n "$appimage"
+
+          inspect="$RUNNER_TEMP/infomancer-deb-inspect"
+          rm -rf "$inspect"
+          mkdir -p "$inspect"
+          dpkg-deb -x "$deb" "$inspect"
+          appstreamcli validate --no-net "$inspect/usr/share/metainfo/cloud.arsenik.infomancer.metainfo.xml"
+          desktop-file-validate "$inspect/usr/share/applications/InfoMancer.desktop"
+
+          host_glibc="$(ldd --version | head -n 1 | grep -oE '[0-9]+\.[0-9]+' | tail -n 1)"
+          max_glibc="$(objdump -T desktop/src-tauri/target/release/infomancer-desktop 2>/dev/null | grep -oE 'GLIBC_[0-9]+\.[0-9]+' | sed 's/^GLIBC_//' | sort -V | tail -n 1)"
+          echo "Self-hosted Linux runner glibc: $host_glibc"
+          echo "Built launcher maximum GLIBC symbol: ${max_glibc:-unknown}"
+
+          mkdir -p release-assets
+          cp "$deb" "$appimage" release-assets/
+          export INFOMANCER_SOURCE_SHA="$(git rev-parse HEAD)"
+          export INFOMANCER_HOST_GLIBC="$host_glibc"
+          export INFOMANCER_MAX_GLIBC="${max_glibc:-unknown}"
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          host = os.environ["INFOMANCER_HOST_GLIBC"]
+          maximum = os.environ["INFOMANCER_MAX_GLIBC"]
+          manifest = {
+              "schema_version": 1,
+              "product": "InfoMancer",
+              "platform": "linux-x64",
+              "source_sha": os.environ["INFOMANCER_SOURCE_SHA"],
+              "preview_only": True,
+              "release_eligible": False,
+              "canonical_release_glibc_floor": "2.35",
+              "self_hosted_runner_glibc": host,
+              "built_launcher_max_glibc": maximum,
+              "compatibility_floor_qualified": host == "2.35" and maximum != "unknown" and tuple(map(int, maximum.split("."))) <= (2, 35),
+              "reason": "Self-hosted preview only. Canonical Linux releases remain on the Ubuntu 22.04/glibc 2.35 qualification lane.",
+          }
+          Path("release-assets/package-provenance.json").write_text(
+              json.dumps(manifest, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload Linux preview package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: infomancer-linux-preview-${{ github.run_id }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
