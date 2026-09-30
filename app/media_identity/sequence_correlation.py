@@ -55,15 +55,22 @@ class SequenceOffsetPolicy:
                 raise SequenceCorrelationError(
                     f"Sequence {label} is outside the supported bound."
                 )
-        if (
-            isinstance(self.minimum_support_ratio, bool)
-            or not isinstance(self.minimum_support_ratio, (int, float))
-            or not math.isfinite(float(self.minimum_support_ratio))
-            or not 0.50 <= float(self.minimum_support_ratio) <= 1.0
+        for label, value in (
+            ("minimum support ratio", self.minimum_support_ratio),
+            (
+                "minimum cohort coverage ratio",
+                self.minimum_cohort_coverage_ratio,
+            ),
         ):
-            raise SequenceCorrelationError(
-                "Sequence minimum support ratio must be between 0.50 and 1."
-            )
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                or not 0.50 <= float(value) <= 1.0
+            ):
+                raise SequenceCorrelationError(
+                    f"Sequence {label} must be between 0.50 and 1."
+                )
         for label, value in (
             ("minimum support strength", self.minimum_support_strength),
             ("maximum conflict strength", self.maximum_conflict_strength),
@@ -85,6 +92,9 @@ class SequenceOffsetPolicy:
             "max_abs_offset": self.max_abs_offset,
             "minimum_files": self.minimum_files,
             "minimum_support_ratio": float(self.minimum_support_ratio),
+            "minimum_cohort_coverage_ratio": float(
+                self.minimum_cohort_coverage_ratio
+            ),
             "maximum_claim_gap": self.maximum_claim_gap,
             "minimum_support_strength": float(
                 self.minimum_support_strength
