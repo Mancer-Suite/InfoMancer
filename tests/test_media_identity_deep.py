@@ -469,6 +469,19 @@ class DeepIdentityPlanningTests(unittest.TestCase):
                     metadata=metadata,
                 )
             )
+            self.assertTrue(
+                deep_plan_metadata_is_current(
+                    conn,
+                    file_id=1,
+                    title_id=1,
+                    season=2,
+                    episode_start=1,
+                    episode_end=1,
+                    language="eng",
+                    metadata=metadata,
+                    require_correlation_current=False,
+                )
+            )
 
     def test_correlation_signature_binds_file_snapshot(self) -> None:
         policy = DeepCorrelationPolicy(
