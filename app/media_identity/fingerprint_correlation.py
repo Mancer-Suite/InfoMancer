@@ -331,8 +331,13 @@ class DeepFingerprintCorrelationService:
         if row is None:
             return False
         item = dict(row)
+        try:
+            item_file_id = int(item.get("file_id") or 0)
+            item_file_size = int(item.get("file_size_bytes") or 0)
+        except (TypeError, ValueError, OverflowError):
+            return False
         if (
-            int(item.get("file_id") or 0) != expected.file_id
+            item_file_id != expected.file_id
             or str(item.get("artifact_type") or "")
             != "content_fingerprint"
             or str(item.get("analyzer_key") or "")
@@ -372,7 +377,7 @@ class DeepFingerprintCorrelationService:
             and str(snapshot["current_sha256"]) == expected.file_sha256
             and int(snapshot["runtime_ms"]) == expected.runtime_ms
             and int(snapshot["size_bytes"] or 0)
-            == int(item.get("file_size_bytes") or 0)
+            == item_file_size
             and _same_modified_at(
                 snapshot["modified_at"],
                 item.get("file_modified_at"),
