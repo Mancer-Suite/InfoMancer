@@ -46,6 +46,7 @@ class DeepSequenceCorrelationRun:
     invalid_scan_file_ids: tuple[int, ...]
     hypotheses: tuple[SequenceHypothesis, ...]
     analysis: SequenceOffsetAnalysis
+    catalog_claims: tuple[tuple[int, int, int, int], ...] = ()
 
     def __post_init__(self) -> None:
         for label, value in (
@@ -160,6 +161,41 @@ class DeepSequenceCorrelationRun:
             raise DeepSequenceCorrelationError(
                 "Sequence run analysis does not match its hypothesis set."
             )
+        if self.catalog_claims:
+            claim_ids: list[int] = []
+            for claim in self.catalog_claims:
+                if (
+                    not isinstance(claim, tuple)
+                    or len(claim) != 4
+                    or any(
+                        isinstance(value, bool)
+                        or not isinstance(value, int)
+                        for value in claim
+                    )
+                ):
+                    raise DeepSequenceCorrelationError(
+                        "Sequence run catalog claims are malformed."
+                    )
+                file_id, season, episode_start, episode_end = claim
+                if (
+                    file_id < 1
+                    or season < 0
+                    or episode_start < 0
+                    or episode_end < episode_start
+                ):
+                    raise DeepSequenceCorrelationError(
+                        "Sequence run catalog claims are invalid."
+                    )
+                claim_ids.append(file_id)
+            if (
+                tuple(sorted(claim_ids)) != tuple(claim_ids)
+                or len(set(claim_ids)) != len(claim_ids)
+                or len(claim_ids) != self.planned_file_count
+                or self.target_file_id not in set(claim_ids)
+            ):
+                raise DeepSequenceCorrelationError(
+                    "Sequence run catalog claim coverage is inconsistent."
+                )
 
     @property
     def target_hypothesis(self) -> SequenceHypothesis | None:
@@ -415,9 +451,25 @@ class DeepSequenceCorrelationService:
                     continue
                 hypotheses.append(hypothesis)
 
+        planned_counts_by_season: dict[int, int] = {}
+        catalog_claims = tuple(sorted(
+            (
+                item.file_id,
+                item.season,
+                item.episode_start,
+                item.episode_end,
+            )
+            for item in plan.files
+        ))
+        for _, season, _, _ in catalog_claims:
+            planned_counts_by_season[season] = (
+                planned_counts_by_season.get(season, 0) + 1
+            )
+
         analysis = detect_sequence_offsets(
             hypotheses,
             policy=self.sequence_policy,
+            planned_file_counts_by_season=planned_counts_by_season,
         )
         policy_identity, policy_signature = _policy_identity(
             self.sequence_policy
@@ -442,4 +494,5 @@ class DeepSequenceCorrelationService:
                 ),
             )),
             analysis=analysis,
+            catalog_claims=catalog_claims,
         )
