@@ -1302,6 +1302,44 @@ class DeepFingerprintCorrelationServiceTests(unittest.TestCase):
                 )
             )
 
+    def test_transaction_validator_rejects_malformed_child_outer_row(self) -> None:
+        result = self.correlation.run(self.scan1.scan_id)
+        self.assertTrue(result.coverage_complete)
+        assert result.manifest_artifact_id is not None
+
+        with self.database.connect() as conn:
+            row = conn.execute(
+                """SELECT payload_json FROM media_identity_artifacts
+                   WHERE id=?""",
+                (result.manifest_artifact_id,),
+            ).fetchone()
+            payload = json.loads(row["payload_json"])
+            child_id = int(
+                payload["identity"]["fingerprints"][0]["artifact_id"]
+            )
+            conn.execute(
+                """UPDATE media_identity_artifacts
+                   SET file_size_bytes='invalid'
+                   WHERE id=?""",
+                (child_id,),
+            )
+            scan = dict(conn.execute(
+                "SELECT * FROM media_identity_scans WHERE id=?",
+                (self.scan1.scan_id,),
+            ).fetchone())
+            revision = result_revision(scan)
+
+            self.assertFalse(
+                self.correlation.validate_manifest_artifact(
+                    conn,
+                    result.manifest_artifact_id,
+                    scan_id=self.scan1.scan_id,
+                    result_revision=revision,
+                    plan_signature=result.correlation_plan_signature,
+                    expected_comparisons=result.comparisons,
+                )
+            )
+
     def test_tampered_manifest_is_repaired_from_current_children(self) -> None:
         first = self.correlation.run(self.scan1.scan_id)
         self.assertTrue(first.coverage_complete)
