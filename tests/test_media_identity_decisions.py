@@ -808,6 +808,88 @@ class DecisionServiceTests(unittest.TestCase):
             call.args[0] for call in scan_detail.call_args_list
         ])
 
+    def test_newer_weaker_scan_does_not_hide_deep_correlation_retry(self) -> None:
+        current = self.media.stat()
+        with self.database.connect() as conn:
+            deep = conn.execute(
+                """INSERT INTO media_identity_scans(
+                     file_id,identity_kind,requested_profile,completed_profile,
+                     status,stage,claimed_identity_json,file_size_bytes,
+                     file_modified_at,file_sha256,metadata_signature,
+                     result_state,completed_at
+                   ) VALUES (
+                     1,'episode','deep','deep','complete','deep_resolved','{}',
+                     ?,?,?, 'deep-retry-fixture','strong_match_other',
+                     CURRENT_TIMESTAMP
+                   )""",
+                (
+                    current.st_size,
+                    current.st_mtime,
+                    "a" * 64,
+                ),
+            )
+            deep_id = int(deep.lastrowid)
+            latest = conn.execute(
+                """INSERT INTO media_identity_scans(
+                     file_id,identity_kind,requested_profile,completed_profile,
+                     status,stage,claimed_identity_json,file_size_bytes,
+                     file_modified_at,file_sha256,metadata_signature,
+                     result_state,completed_at
+                   ) VALUES (
+                     1,'episode','fast','fast','complete','resolved','{}',
+                     ?,?,?, 'deep-retry-fixture','inconclusive',
+                     CURRENT_TIMESTAMP
+                   )""",
+                (
+                    current.st_size,
+                    current.st_mtime,
+                    "a" * 64,
+                ),
+            )
+            latest_id = int(latest.lastrowid)
+
+        def fake_detail(scan_id: int, *args, **kwargs):
+            if int(scan_id) == deep_id:
+                return {
+                    "id": deep_id,
+                    "file_id": 1,
+                    "file": {
+                        "root_id": 1,
+                        "title_id": 1,
+                        "filename": self.media.name,
+                    },
+                    "snapshot_current": True,
+                    "result_state": "strong_match_other",
+                    "result_revision": 7,
+                    "decision_snapshot_sha256": "b" * 64,
+                    "deep_correlation_required": True,
+                    "deep_correlation_ready": False,
+                }
+            if int(scan_id) == latest_id:
+                raise AssertionError(
+                    "A newer weaker scan must not replace a current Deep retry state."
+                )
+            raise AssertionError(f"Unexpected scan detail request: {scan_id}")
+
+        with patch.object(
+            self.service,
+            "scan_detail",
+            side_effect=fake_detail,
+        ):
+            findings = self.service.mie_findings()
+
+        self.assertEqual(len(findings), 1)
+        finding = findings[0]
+        self.assertEqual(
+            finding["rule_key"],
+            "episode-identity-deep-review",
+        )
+        self.assertEqual(
+            finding["evidence"]["deep_review_state"],
+            "correlation_incomplete",
+        )
+        self.assertEqual(finding["evidence"]["scan_id"], deep_id)
+
     def test_snapshot_sha_does_not_trust_or_require_cached_hash_record(self) -> None:
         self.service.resolve_scan(self.scan_id)
         digest = hashlib.sha256(self.media.read_bytes()).hexdigest()
