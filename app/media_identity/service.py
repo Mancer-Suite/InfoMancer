@@ -1501,8 +1501,8 @@ class MediaIdentityDecisionService:
         except (TypeError, ValueError):
             return None
 
-    @staticmethod
     def _deep_correlation_inputs_current(
+        self,
         conn: sqlite3.Connection,
         scan: Mapping[str, Any],
         claimed: Mapping[str, Any],
@@ -1658,10 +1658,92 @@ class MediaIdentityDecisionService:
             )
             if current is not None or not had_scan:
                 return False
+
+        raw_fingerprints = identity.get("fingerprints")
+        if not isinstance(raw_fingerprints, Mapping):
+            return False
+        revision, _ = self._decision_token(claimed)
+        if revision < 1:
+            return False
+        preferred_language = str(
+            claimed.get("scan_language") or ""
+        ).strip().casefold()
+        try:
+            from .fingerprint import FingerprintError
+            from .fingerprint_audio_service import (
+                DeepAudioFingerprintCorrelationService,
+            )
+            from .fingerprint_correlation import (
+                DeepFingerprintCorrelationError,
+                DeepFingerprintCorrelationService,
+            )
+            from .fingerprint_service import DeepFingerprintError
+
+            modality_services = {
+                "video": DeepFingerprintCorrelationService(
+                    self.database,
+                    correlation_policy=correlation_policy,
+                ),
+                "audio": DeepAudioFingerprintCorrelationService(
+                    self.database,
+                    preferred_language=preferred_language,
+                    correlation_policy=correlation_policy,
+                ),
+            }
+            complete_modalities: list[str] = []
+            for modality, service in modality_services.items():
+                raw_run = raw_fingerprints.get(modality)
+                if not isinstance(raw_run, Mapping):
+                    return False
+                coverage_complete = raw_run.get("coverage_complete")
+                if not isinstance(coverage_complete, bool):
+                    return False
+                manifest_artifact_id = raw_run.get(
+                    "manifest_artifact_id"
+                )
+                if not coverage_complete:
+                    if manifest_artifact_id is not None:
+                        return False
+                    continue
+                if (
+                    isinstance(manifest_artifact_id, bool)
+                    or not isinstance(manifest_artifact_id, int)
+                    or manifest_artifact_id < 1
+                ):
+                    return False
+                if not service.validate_manifest_artifact(
+                    conn,
+                    manifest_artifact_id,
+                    scan_id=int(scan["id"]),
+                    result_revision=revision,
+                    plan_signature=current_plan.plan_signature,
+                ):
+                    return False
+                complete_modalities.append(modality)
+            raw_complete_modalities = raw_fingerprints.get(
+                "complete_modalities"
+            )
+            if (
+                not isinstance(raw_complete_modalities, list)
+                or sorted(raw_complete_modalities)
+                != sorted(complete_modalities)
+            ):
+                return False
+        except (
+            DeepFingerprintCorrelationError,
+            DeepFingerprintError,
+            FingerprintError,
+            DeepIdentityError,
+            KeyError,
+            TypeError,
+            ValueError,
+            sqlite3.Error,
+        ):
+            return False
         return True
 
-    @staticmethod
     def _current_deep_correlation_view(
+        self,
         conn: sqlite3.Connection,
         scan: Mapping[str, Any],
         claimed: Mapping[str, Any],
@@ -1687,7 +1769,7 @@ class MediaIdentityDecisionService:
         )
         if (
             view is None
-            or not MediaIdentityDecisionService._deep_correlation_inputs_current(
+            or not self._deep_correlation_inputs_current(
                 conn,
                 scan,
                 claimed,
