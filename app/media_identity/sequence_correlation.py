@@ -27,6 +27,7 @@ class SequenceOffsetPolicy:
     max_abs_offset: int = 3
     minimum_files: int = 3
     minimum_support_ratio: float = 0.75
+    minimum_cohort_coverage_ratio: float = 0.75
     maximum_claim_gap: int = 2
     minimum_support_strength: float = 0.50
     maximum_conflict_strength: float = 0.25
