@@ -679,11 +679,17 @@ def deep_plan_metadata_is_current(
     except (DeepIdentityError, TypeError, ValueError):
         return False
 
-    return (
+    candidate_current = (
         str(metadata.get("candidate_plan_signature") or "")
         == expected["candidate_plan_signature"]
         and persisted_candidate_keys == expected["candidate_keys"]
-        and str(metadata.get("correlation_plan_signature") or "")
+    )
+    if not candidate_current:
+        return False
+    if not require_correlation_current:
+        return True
+    return (
+        str(metadata.get("correlation_plan_signature") or "")
         == expected["correlation_plan_signature"]
         and persisted_file_ids == expected["correlation_file_ids"]
         and persisted_pairs == expected["comparison_pairs"]
