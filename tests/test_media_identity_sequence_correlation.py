@@ -59,9 +59,10 @@ class SequenceOffsetPolicyTests(unittest.TestCase):
         policy = SequenceOffsetPolicy()
         payload = policy.identity_payload()
 
-        self.assertEqual(payload["version"], 1)
+        self.assertEqual(payload["version"], 2)
         self.assertEqual(policy.minimum_files, 3)
         self.assertEqual(policy.minimum_support_ratio, 0.75)
+        self.assertEqual(policy.minimum_cohort_coverage_ratio, 0.75)
         self.assertEqual(policy.maximum_claim_gap, 2)
         self.assertEqual(policy.max_abs_offset, 3)
         self.assertIn(
@@ -157,6 +158,25 @@ class SequenceAnalysisValidationTests(unittest.TestCase):
 
 
 class SequenceOffsetDetectionTests(unittest.TestCase):
+    def test_three_of_forty_eight_is_visible_but_not_authoritative(self) -> None:
+        analysis = detect_sequence_offsets(
+            [
+                _hypothesis(1, 1, 2),
+                _hypothesis(2, 2, 3),
+                _hypothesis(3, 3, 4),
+            ],
+            planned_file_counts_by_season={1: 48},
+        )
+
+        self.assertEqual(len(analysis.observations), 1)
+        item = analysis.observations[0]
+        self.assertEqual(item.support_count, 3)
+        self.assertEqual(item.usable_count, 3)
+        self.assertEqual(item.planned_count, 48)
+        self.assertAlmostEqual(item.coverage_ratio, 3 / 48)
+        self.assertFalse(item.coverage_sufficient)
+        self.assertEqual(analysis.authoritative_observations, ())
+
     def test_three_of_four_plus_one_hypotheses_qualify(self) -> None:
         analysis = detect_sequence_offsets([
             _hypothesis(1, 1, 2),
