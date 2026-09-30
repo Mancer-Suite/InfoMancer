@@ -201,11 +201,26 @@ def correlate_deep_patterns(
             "J4.3 inputs must share the same sealed scan/cohort baseline."
         )
 
+    catalog_claims = (
+        {
+            file_id: (season, episode_start)
+            for (
+                file_id,
+                season,
+                episode_start,
+                episode_end,
+            ) in sequence.catalog_claims
+            if season > 0 and episode_start == episode_end
+        }
+        if sequence.catalog_claims
+        else None
+    )
     try:
         patterns = detect_correlation_patterns(
             pairs=interpretation.pairs,
             hypotheses=sequence.hypotheses,
             credibility_policy=sequence.analysis.policy,
+            catalog_claims=catalog_claims,
         )
     except CorrelationPatternError as exc:
         raise DeepCorrelationPatternError(str(exc)) from exc
