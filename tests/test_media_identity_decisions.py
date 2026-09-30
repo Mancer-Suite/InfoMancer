@@ -1152,6 +1152,26 @@ class DecisionServiceTests(unittest.TestCase):
         self.assertFalse(preview["scan"]["snapshot_current"])
         self.assertFalse(preview["scan"]["actionable"])
 
+    def test_rename_preview_final_validation_starts_read_transaction(self) -> None:
+        self.service.resolve_scan(self.scan_id)
+        original = MediaIdentityDecisionService._scan_snapshot
+        transaction_states: list[bool] = []
+
+        def observed_snapshot(conn, scan_id):
+            transaction_states.append(bool(conn.in_transaction))
+            return original(conn, scan_id)
+
+        with patch.object(
+            MediaIdentityDecisionService,
+            "_scan_snapshot",
+            side_effect=observed_snapshot,
+        ):
+            preview = self._rename_preview(self.scan_id)
+
+        self.assertEqual(preview["status"], "ready")
+        self.assertTrue(transaction_states)
+        self.assertTrue(transaction_states[-1])
+
     def test_real_fast_scan_flows_through_decision_mie_and_sidecar_freshness(self) -> None:
         sidecar = self._seed_real_fast_mismatch_inputs()
         fast = FastIdentityService(self.database)
