@@ -604,6 +604,7 @@ def deep_plan_metadata_is_current(
     episode_end: int | None,
     language: str,
     metadata: object,
+    require_correlation_current: bool = True,
 ) -> bool:
     """Rebuild persisted Deep plans and fail closed on any semantic drift."""
 
