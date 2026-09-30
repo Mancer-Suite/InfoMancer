@@ -974,6 +974,23 @@ class DeepFingerprintArtifactServiceTests(unittest.TestCase):
         self.assertEqual(matched.comparisons[0].right_file_id, 2)
         self.assertEqual(matched.comparisons[0].mean_similarity, 1.0)
 
+    def test_malformed_outer_cache_row_is_regenerated_not_raised(self) -> None:
+        first = self.service.ensure_scan(self.scan1.scan_id)
+        self.assertIsNotNone(first.artifact_id)
+
+        with self.database.connect() as conn:
+            conn.execute(
+                """UPDATE media_identity_artifacts
+                   SET file_size_bytes='invalid'
+                   WHERE id=?""",
+                (int(first.artifact_id),),
+            )
+
+        second = self.service.ensure_scan(self.scan1.scan_id)
+
+        self.assertIsNotNone(second.artifact_id)
+        self.assertIsNotNone(second.fingerprint)
+
     def test_file_only_peer_can_reuse_scan_bound_exact_hash(self) -> None:
         first = self.service.ensure_scan(self.scan2.scan_id)
         self.assertIsNotNone(first.artifact_id)
@@ -1094,6 +1111,22 @@ class DeepFingerprintCorrelationServiceTests(unittest.TestCase):
                 for failure in result.failures
             )
         )
+
+    def test_missing_ids_are_normalized_when_cohort_order_is_not_numeric(self) -> None:
+        with self.database.connect() as conn:
+            conn.execute(
+                "UPDATE files SET episode_start=3, episode_end=3 WHERE id=2"
+            )
+            conn.execute(
+                "UPDATE files SET episode_start=2, episode_end=2 WHERE id=3"
+            )
+        FakeVideoFingerprintExtractor.fail_files = {2, 3}
+
+        result = self.correlation.run(self.scan1.scan_id)
+
+        self.assertFalse(result.coverage_complete)
+        self.assertEqual(result.missing_file_ids, (2, 3))
+        self.assertIsNone(result.manifest_artifact_id)
 
     def test_one_failed_peer_keeps_matrix_non_authoritative(self) -> None:
         FakeVideoFingerprintExtractor.fail_files = {3}
