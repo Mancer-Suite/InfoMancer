@@ -226,6 +226,9 @@ class SequenceOffsetObservation:
     longest_chain: int
     first_claimed_episode: int
     last_claimed_episode: int
+    planned_count: int | None = None
+    coverage_ratio: float | None = None
+    coverage_sufficient: bool = True
     conflicted: bool = False
 
     def __post_init__(self) -> None:
@@ -254,6 +257,36 @@ class SequenceOffsetObservation:
         if abs(float(self.support_ratio) - expected_ratio) > 1e-9:
             raise SequenceCorrelationError(
                 "Sequence observation support ratio is inconsistent."
+            )
+        if self.planned_count is not None:
+            if (
+                isinstance(self.planned_count, bool)
+                or not isinstance(self.planned_count, int)
+                or self.planned_count < self.usable_count
+                or self.planned_count < 1
+            ):
+                raise SequenceCorrelationError(
+                    "Sequence observation planned count is inconsistent."
+                )
+            if (
+                isinstance(self.coverage_ratio, bool)
+                or not isinstance(self.coverage_ratio, (int, float))
+                or not math.isfinite(float(self.coverage_ratio))
+                or abs(
+                    float(self.coverage_ratio)
+                    - self.usable_count / float(self.planned_count)
+                ) > 1e-9
+            ):
+                raise SequenceCorrelationError(
+                    "Sequence observation cohort coverage is inconsistent."
+                )
+        elif self.coverage_ratio is not None:
+            raise SequenceCorrelationError(
+                "Sequence observation coverage lacks a planned count."
+            )
+        if not isinstance(self.coverage_sufficient, bool):
+            raise SequenceCorrelationError(
+                "Sequence observation coverage flag must be boolean."
             )
         if self.first_claimed_episode > self.last_claimed_episode:
             raise SequenceCorrelationError(
@@ -346,7 +379,7 @@ class SequenceOffsetAnalysis:
     ) -> tuple[SequenceOffsetObservation, ...]:
         return tuple(
             item for item in self.observations
-            if not item.conflicted
+            if not item.conflicted and item.coverage_sufficient
         )
 
 
