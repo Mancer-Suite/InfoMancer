@@ -408,6 +408,33 @@ class AmbiguousClaimTests(unittest.TestCase):
             (2, 3),
         )
 
+    def test_unscanned_duplicate_claim_blocks_swap_ownership(self) -> None:
+        analysis = detect_correlation_patterns(
+            pairs=[
+                _pair(
+                    1,
+                    2,
+                    video=(0.50, 0.50),
+                    audio=(0.50, 0.50),
+                )
+            ],
+            hypotheses=[
+                _hypothesis(1, 1, 2),
+                _hypothesis(2, 2, 1),
+            ],
+            catalog_claims={
+                1: (1, 1),
+                2: (1, 2),
+                3: (1, 1),
+            },
+        )
+
+        self.assertEqual(analysis.swap_observations, ())
+        self.assertEqual(
+            analysis.ambiguous_claim_file_ids,
+            (1, 3),
+        )
+
     def test_weak_duplicate_claim_still_blocks_swap_ownership(self) -> None:
         analysis = detect_correlation_patterns(
             pairs=[],
