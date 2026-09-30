@@ -452,8 +452,14 @@ class DeepFingerprintCorrelationService:
         identity: Mapping[str, Any],
         comparisons: tuple[FingerprintComparison, ...],
     ) -> bool:
+        try:
+            row_file_id = int(row.get("file_id") or 0)
+            scan_file_id = int(scan["file_id"])
+            scan_id = int(scan["id"])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return False
         if (
-            int(row.get("file_id") or 0) != int(scan["file_id"])
+            row_file_id != scan_file_id
             or str(row.get("artifact_type") or "")
             != "deep_fingerprint_manifest"
             or str(row.get("analyzer_key") or "")
@@ -465,7 +471,7 @@ class DeepFingerprintCorrelationService:
             or str(row.get("source_kind") or "")
             != self.manifest_source_kind
             or str(row.get("source_ref") or "")
-            != f"scan:{int(scan['id'])}"
+            != f"scan:{scan_id}"
             or str(row.get("source_signature") or "")
             != str(identity["correlation_plan_signature"])
             or str(row.get("cache_key") or "")
