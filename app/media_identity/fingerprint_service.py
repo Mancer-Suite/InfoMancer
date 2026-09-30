@@ -316,8 +316,15 @@ class DeepFingerprintArtifactService:
         source_signature: str | None,
         expected_timestamps: Sequence[int] | None,
     ) -> ContentFingerprint | None:
+        try:
+            row_file_id = int(row.get("file_id") or 0)
+            snapshot_file_id = int(snapshot["id"])
+            row_file_size = int(row.get("file_size_bytes") or 0)
+            snapshot_file_size = int(snapshot["size_bytes"] or 0)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            return None
         if (
-            int(row.get("file_id") or 0) != int(snapshot["id"])
+            row_file_id != snapshot_file_id
             or str(row.get("artifact_type") or "") != "content_fingerprint"
             or str(row.get("analyzer_key") or "")
             != self.analyzer_key
@@ -327,13 +334,12 @@ class DeepFingerprintArtifactService:
             or str(row.get("profile") or "") != "deep"
             or str(row.get("source_kind") or "") != self.source_kind
             or str(row.get("source_ref") or "")
-            != f"file:{int(snapshot['id'])}"
+            != f"file:{snapshot_file_id}"
             or (
                 source_signature is not None
                 and str(row.get("source_signature") or "") != source_signature
             )
-            or int(row.get("file_size_bytes") or 0)
-            != int(snapshot["size_bytes"] or 0)
+            or row_file_size != snapshot_file_size
             or not _same_modified_at(
                 row.get("file_modified_at"),
                 snapshot.get("modified_at"),
