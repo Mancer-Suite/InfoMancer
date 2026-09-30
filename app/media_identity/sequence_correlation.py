@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from .models import IdentityResultState
 from .versions import DEEP_SEQUENCE_CORRELATION_VERSION
