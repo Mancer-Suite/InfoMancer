@@ -1008,6 +1008,7 @@ class MediaIdentityDecisionService:
                 ),
                 language=language,
                 metadata=claimed.get("deep_identity"),
+                require_correlation_current=False,
             ):
                 return False, file_row
             if not deep_evidence_metadata_is_current(
