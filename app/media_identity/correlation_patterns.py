@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from .correlation_interpretation import (
     MultimodalAgreement,
@@ -333,17 +333,17 @@ def _credible_hypotheses(
 
 
 def _claim_owners(
-    hypotheses: tuple[SequenceHypothesis, ...],
+    claims: Mapping[int, tuple[int, int]],
 ) -> tuple[
     dict[tuple[int, int], int],
     tuple[int, ...],
 ]:
     grouped: dict[tuple[int, int], list[int]] = {}
-    for item in hypotheses:
+    for file_id, coordinate in claims.items():
         grouped.setdefault(
-            _coordinate(item),
+            coordinate,
             [],
-        ).append(item.file_id)
+        ).append(file_id)
 
     owners: dict[tuple[int, int], int] = {}
     ambiguous: set[int] = set()
@@ -466,6 +466,7 @@ def detect_correlation_patterns(
     pairs: Iterable[PairInterpretation],
     hypotheses: Iterable[SequenceHypothesis],
     credibility_policy: SequenceOffsetPolicy | None = None,
+    catalog_claims: Mapping[int, tuple[int, int]] | None = None,
 ) -> CorrelationPatternAnalysis:
     credibility_policy = (
         credibility_policy or SequenceOffsetPolicy()
@@ -517,12 +518,34 @@ def detect_correlation_patterns(
         prepared_hypotheses,
         policy=credibility_policy,
     )
-    claimable = tuple(
-        item
-        for item in prepared_hypotheses
-        if item.single_episode and item.claimed_season > 0
-    )
-    owners, ambiguous = _claim_owners(claimable)
+    if catalog_claims is None:
+        claim_coordinates = {
+            item.file_id: _coordinate(item)
+            for item in prepared_hypotheses
+            if item.single_episode and item.claimed_season > 0
+        }
+    else:
+        claim_coordinates: dict[int, tuple[int, int]] = {}
+        for file_id, coordinate in catalog_claims.items():
+            if (
+                isinstance(file_id, bool)
+                or not isinstance(file_id, int)
+                or file_id < 1
+                or not isinstance(coordinate, tuple)
+                or len(coordinate) != 2
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, int)
+                    for value in coordinate
+                )
+                or coordinate[0] <= 0
+                or coordinate[1] < 0
+            ):
+                raise CorrelationPatternError(
+                    "Pattern catalog claims are malformed."
+                )
+            claim_coordinates[file_id] = coordinate
+    owners, ambiguous = _claim_owners(claim_coordinates)
     hypotheses_by_file = {
         item.file_id: item
         for item in credible
