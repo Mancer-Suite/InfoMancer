@@ -1358,35 +1358,39 @@ class DeepFingerprintCorrelationServiceTests(unittest.TestCase):
             ).fetchone())
             revision = result_revision(scan)
 
-        for bad_value in (10**100, float("inf"), True, "1"):
-            with self.subTest(bad_value=bad_value):
-                payload = json.loads(
-                    json.dumps(baseline_payload)
-                )
-                payload["identity"]["fingerprints"][0][
-                    "artifact_id"
-                ] = bad_value
-                with self.database.connect() as conn:
-                    conn.execute(
-                        """UPDATE media_identity_artifacts
-                           SET payload_json=? WHERE id=?""",
-                        (
-                            json.dumps(payload, sort_keys=True),
-                            result.manifest_artifact_id,
-                        ),
+        for field_name in ("artifact_id", "file_id"):
+            for bad_value in (10**100, float("inf"), True, "1"):
+                with self.subTest(
+                    field_name=field_name,
+                    bad_value=bad_value,
+                ):
+                    payload = json.loads(
+                        json.dumps(baseline_payload)
                     )
-                    self.assertFalse(
-                        self.correlation.validate_manifest_artifact(
-                            conn,
-                            result.manifest_artifact_id,
-                            scan_id=self.scan1.scan_id,
-                            result_revision=revision,
-                            plan_signature=(
-                                result.correlation_plan_signature
+                    payload["identity"]["fingerprints"][0][
+                        field_name
+                    ] = bad_value
+                    with self.database.connect() as conn:
+                        conn.execute(
+                            """UPDATE media_identity_artifacts
+                               SET payload_json=? WHERE id=?""",
+                            (
+                                json.dumps(payload, sort_keys=True),
+                                result.manifest_artifact_id,
                             ),
-                            expected_comparisons=result.comparisons,
                         )
-                    )
+                        self.assertFalse(
+                            self.correlation.validate_manifest_artifact(
+                                conn,
+                                result.manifest_artifact_id,
+                                scan_id=self.scan1.scan_id,
+                                result_revision=revision,
+                                plan_signature=(
+                                    result.correlation_plan_signature
+                                ),
+                                expected_comparisons=result.comparisons,
+                            )
+                        )
 
     def test_tampered_manifest_is_repaired_from_current_children(self) -> None:
         first = self.correlation.run(self.scan1.scan_id)
