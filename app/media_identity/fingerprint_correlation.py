@@ -43,6 +43,22 @@ DEEP_FINGERPRINT_MANIFEST_VERSION = str(
     DEEP_FINGERPRINT_CORRELATION_VERSION
 )
 
+_SQLITE_INTEGER_MAX = (1 << 63) - 1
+
+
+def _persisted_sqlite_id(value: object) -> int | None:
+    """Return a safe persisted SQLite row ID, or None for malformed input."""
+
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 1
+        or value > _SQLITE_INTEGER_MAX
+    ):
+        return None
+    return value
+
+
 
 class DeepFingerprintCorrelationError(RuntimeError):
     """The Deep fingerprint cohort changed or could not be proven complete."""
@@ -556,14 +572,15 @@ class DeepFingerprintCorrelationService:
         for raw_child in raw_children:
             if not isinstance(raw_child, Mapping):
                 return False
-            try:
-                child_id = int(raw_child["artifact_id"])
-                file_id = int(raw_child["file_id"])
-            except (KeyError, TypeError, ValueError):
-                return False
+            child_id = _persisted_sqlite_id(
+                raw_child.get("artifact_id")
+            )
+            file_id = _persisted_sqlite_id(
+                raw_child.get("file_id")
+            )
             if (
-                child_id < 1
-                or file_id < 1
+                child_id is None
+                or file_id is None
                 or file_id in children
             ):
                 return False

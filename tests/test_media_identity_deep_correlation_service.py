@@ -530,6 +530,124 @@ class DeepCorrelationAnalysisServiceTests(unittest.TestCase):
             ).fetchone()
         return dict(row)
 
+    def _corrupt_j3_child_id(
+        self,
+        manifest_artifact_id: int,
+        bad_value: object,
+    ) -> None:
+        with self.database.connect() as conn:
+            row = conn.execute(
+                """SELECT payload_json FROM media_identity_artifacts
+                   WHERE id=?""",
+                (manifest_artifact_id,),
+            ).fetchone()
+            payload = json.loads(row["payload_json"])
+            payload["identity"]["fingerprints"][0][
+                "artifact_id"
+            ] = bad_value
+            conn.execute(
+                """UPDATE media_identity_artifacts
+                   SET payload_json=? WHERE id=?""",
+                (
+                    json.dumps(payload, sort_keys=True),
+                    manifest_artifact_id,
+                ),
+            )
+
+    def _assert_publication_rejects_corrupt_nested_id(
+        self,
+        *,
+        modality: str,
+        bad_value: object,
+    ) -> None:
+        original = self.analysis_service._persist
+
+        def corrupt_then_persist(**kwargs):
+            modality_run = getattr(
+                kwargs["fingerprints"],
+                modality,
+            )
+            assert modality_run.manifest_artifact_id is not None
+            self._corrupt_j3_child_id(
+                modality_run.manifest_artifact_id,
+                bad_value,
+            )
+            return original(**kwargs)
+
+        with patch.object(
+            self.analysis_service,
+            "_persist",
+            side_effect=corrupt_then_persist,
+        ):
+            with self.assertRaisesRegex(
+                DeepCorrelationAnalysisError,
+                rf"J4 {modality} fingerprint matrix failed final validation",
+            ):
+                self.analysis_service.run(
+                    self.scan_id
+                )
+
+        with self.database.connect() as conn:
+            count = conn.execute(
+                """SELECT COUNT(*)
+                   FROM media_identity_artifacts
+                   WHERE file_id=1
+                     AND artifact_type='deep_correlation_analysis'"""
+            ).fetchone()[0]
+        self.assertEqual(count, 0)
+
+    def test_scan_detail_rejects_oversized_video_j3_child_id(self) -> None:
+        run = self.analysis_service.run(
+            self.scan_id
+        )
+        manifest_id = run.fingerprints.video.manifest_artifact_id
+        assert manifest_id is not None
+        self._corrupt_j3_child_id(
+            manifest_id,
+            10**100,
+        )
+
+        detail = self.decision_service.scan_detail(
+            self.scan_id
+        )
+
+        self.assertTrue(detail["snapshot_current"])
+        self.assertIsNone(
+            detail["deep_correlation_analysis"]
+        )
+
+    def test_scan_detail_rejects_nonfinite_audio_j3_child_id(self) -> None:
+        run = self.analysis_service.run(
+            self.scan_id
+        )
+        manifest_id = run.fingerprints.audio.manifest_artifact_id
+        assert manifest_id is not None
+        self._corrupt_j3_child_id(
+            manifest_id,
+            float("inf"),
+        )
+
+        detail = self.decision_service.scan_detail(
+            self.scan_id
+        )
+
+        self.assertTrue(detail["snapshot_current"])
+        self.assertIsNone(
+            detail["deep_correlation_analysis"]
+        )
+
+    def test_final_publication_rejects_oversized_video_j3_child_id(self) -> None:
+        self._assert_publication_rejects_corrupt_nested_id(
+            modality="video",
+            bad_value=10**100,
+        )
+
+    def test_final_publication_rejects_nonfinite_audio_j3_child_id(self) -> None:
+        self._assert_publication_rejects_corrupt_nested_id(
+            modality="audio",
+            bad_value=float("inf"),
+        )
+
     def test_complete_j4_artifact_is_cached_and_does_not_mutate_scan(self) -> None:
         before = self._scan_state()
 

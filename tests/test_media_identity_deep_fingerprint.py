@@ -1340,6 +1340,54 @@ class DeepFingerprintCorrelationServiceTests(unittest.TestCase):
                 )
             )
 
+    def test_transaction_validator_rejects_unbounded_nested_child_ids(self) -> None:
+        result = self.correlation.run(self.scan1.scan_id)
+        self.assertTrue(result.coverage_complete)
+        assert result.manifest_artifact_id is not None
+
+        with self.database.connect() as conn:
+            row = conn.execute(
+                """SELECT payload_json FROM media_identity_artifacts
+                   WHERE id=?""",
+                (result.manifest_artifact_id,),
+            ).fetchone()
+            baseline_payload = json.loads(row["payload_json"])
+            scan = dict(conn.execute(
+                "SELECT * FROM media_identity_scans WHERE id=?",
+                (self.scan1.scan_id,),
+            ).fetchone())
+            revision = result_revision(scan)
+
+        for bad_value in (10**100, float("inf"), True, "1"):
+            with self.subTest(bad_value=bad_value):
+                payload = json.loads(
+                    json.dumps(baseline_payload)
+                )
+                payload["identity"]["fingerprints"][0][
+                    "artifact_id"
+                ] = bad_value
+                with self.database.connect() as conn:
+                    conn.execute(
+                        """UPDATE media_identity_artifacts
+                           SET payload_json=? WHERE id=?""",
+                        (
+                            json.dumps(payload, sort_keys=True),
+                            result.manifest_artifact_id,
+                        ),
+                    )
+                    self.assertFalse(
+                        self.correlation.validate_manifest_artifact(
+                            conn,
+                            result.manifest_artifact_id,
+                            scan_id=self.scan1.scan_id,
+                            result_revision=revision,
+                            plan_signature=(
+                                result.correlation_plan_signature
+                            ),
+                            expected_comparisons=result.comparisons,
+                        )
+                    )
+
     def test_tampered_manifest_is_repaired_from_current_children(self) -> None:
         first = self.correlation.run(self.scan1.scan_id)
         self.assertTrue(first.coverage_complete)
