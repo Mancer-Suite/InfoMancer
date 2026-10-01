@@ -45,6 +45,7 @@ class SidecarIdentity:
     modified_ns: int
     device_id: int | None
     inode_id: int | None
+    content_sha256: str
 
 
 @dataclass(frozen=True)
@@ -95,24 +96,47 @@ def normalize_subtitle_text(text: str, extension: str = "") -> str:
     return _SPACE.sub(" ", " ".join(dialogue)).strip().casefold()
 
 
+
+
+def _case_sensitive_media_name(media: Path) -> bool:
+    """Best-effort detection for case-distinct sibling names.
+
+    On case-insensitive filesystems an alternate-cased spelling of the same media
+    path resolves to the same inode. Otherwise require exact basename casing so
+    POSIX directories can safely contain Episode.mkv and episode.mkv side by side.
+    """
+    alternate_name = media.name.swapcase()
+    if alternate_name == media.name:
+        return os.name != "nt"
+    alternate = media.with_name(alternate_name)
+    try:
+        if alternate.exists():
+            return not os.path.samefile(media, alternate)
+    except OSError:
+        pass
+    return os.name != "nt"
+
+
 def discover_sidecar_subtitles(media_path: str | Path) -> list[Path]:
     """Return bounded, same-basename subtitle sidecars without following symlinks."""
     media = Path(media_path)
     parent = media.parent
-    prefix = media.stem.casefold()
+    case_sensitive = _case_sensitive_media_name(media)
+    prefix = media.stem if case_sensitive else media.stem.casefold()
     pool: list[tuple[tuple[str, str], Path]] = []
     try:
         for candidate in parent.iterdir():
             suffix = candidate.suffix.casefold()
             if suffix not in SIDECAR_EXTENSIONS:
                 continue
-            folded_name = candidate.name.casefold()
+            comparable_name = candidate.name if case_sensitive else candidate.name.casefold()
+            comparable_suffix = candidate.suffix if case_sensitive else suffix
             if not (
-                folded_name == f"{prefix}{suffix}"
-                or folded_name.startswith(prefix + ".")
+                comparable_name == f"{prefix}{comparable_suffix}"
+                or comparable_name.startswith(prefix + ".")
             ):
                 continue
-            sort_key = (folded_name, candidate.name)
+            sort_key = (candidate.name.casefold(), candidate.name)
             if len(pool) < MAX_SIDECAR_SELECTION_POOL:
                 pool.append((sort_key, candidate))
                 pool.sort(key=lambda item: item[0])
@@ -143,6 +167,62 @@ def discover_sidecar_subtitles(media_path: str | Path) -> list[Path]:
     return found
 
 
+def _sidecar_content_sha256(
+    path: Path,
+    expected_stat: os.stat_result,
+) -> str | None:
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_CLOEXEC", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    try:
+        path_stat = os.lstat(path)
+        if stat.S_ISLNK(path_stat.st_mode):
+            return None
+        descriptor = os.open(path, flags | nofollow)
+    except OSError:
+        return None
+
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or int(before.st_size) != int(expected_stat.st_size)
+            or int(before.st_mtime_ns) != int(expected_stat.st_mtime_ns)
+            or int(before.st_size) > MAX_SIDECAR_BYTES
+        ):
+            return None
+        for field in ("st_dev", "st_ino"):
+            expected = int(getattr(expected_stat, field, 0) or 0)
+            actual = int(getattr(before, field, 0) or 0)
+            if expected and actual and expected != actual:
+                return None
+
+        digest = hashlib.sha256()
+        total = 0
+        while True:
+            chunk = os.read(descriptor, 64 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_SIDECAR_BYTES:
+                return None
+            digest.update(chunk)
+
+        after = os.fstat(descriptor)
+        if (
+            int(after.st_size) != int(before.st_size)
+            or int(after.st_mtime_ns) != int(before.st_mtime_ns)
+            or int(after.st_ctime_ns) != int(before.st_ctime_ns)
+        ):
+            return None
+        return digest.hexdigest()
+    except OSError:
+        return None
+    finally:
+        os.close(descriptor)
+
+
 def sidecar_identity(path: Path) -> SidecarIdentity | None:
     """Fingerprint a sidecar from path/size/mtime without reading its contents."""
     try:
@@ -156,12 +236,17 @@ def sidecar_identity(path: Path) -> SidecarIdentity | None:
         return None
     device_id = int(getattr(stat, "st_dev", 0) or 0) or None
     inode_id = int(getattr(stat, "st_ino", 0) or 0) or None
+    content_sha256 = _sidecar_content_sha256(path, stat)
+    if not content_sha256:
+        return None
     signature_payload = "\0".join((
         str(resolved),
         str(stat.st_size),
         str(stat.st_mtime_ns),
+        str(getattr(stat, "st_ctime_ns", 0) or 0),
         "" if device_id is None else str(device_id),
         "" if inode_id is None else str(inode_id),
+        content_sha256,
     ))
     source_signature = hashlib.sha256(signature_payload.encode("utf-8")).hexdigest()
     cache_key = hashlib.sha256(
@@ -175,6 +260,7 @@ def sidecar_identity(path: Path) -> SidecarIdentity | None:
         modified_ns=int(stat.st_mtime_ns),
         device_id=device_id,
         inode_id=inode_id,
+        content_sha256=content_sha256,
     )
 
 
@@ -292,6 +378,8 @@ def read_sidecar_text(
 
     data = _read_sidecar_bounded(path, identity)
     if data is None:
+        return None
+    if hashlib.sha256(data).hexdigest() != identity.content_sha256:
         return None
 
     normalized = normalize_subtitle_text(_decode_subtitle(data), path.suffix)

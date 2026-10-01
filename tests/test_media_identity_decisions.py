@@ -6,12 +6,27 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from app.db import Database
-from app.media_identity.fast import FastIdentityService
+from app.media_identity.candidates import generate_episode_candidates
+from app.media_identity.decision_snapshot import (
+    DecisionSnapshotError,
+    result_revision,
+    seal_decision_snapshot,
+)
+from app.media_identity.fast import (
+    SCAN_INPUT_SIGNATURE_VERSION,
+    FastIdentityService,
+    combined_scan_input_signature,
+    scan_input_signatures,
+)
 from app.media_identity.models import IdentityReference, IdentityResultState
 from app.media_identity.scoring import resolve_identity
 from app.media_identity.service import MediaIdentityDecisionService
+from app.media_identity.versions import (
+    EPISODE_IDENTITY_DECISION_ALGORITHM_VERSION,
+)
 from app.mie_history import MediaIntelligenceHistoryEngine
 
 
@@ -93,6 +108,24 @@ class ConservativeResolverTests(unittest.TestCase):
         self.assertEqual(candidate.support_groups, 1)
         self.assertAlmostEqual(candidate.support_strength, 0.70)
         self.assertEqual(resolution.state, IdentityResultState.INCONCLUSIVE)
+
+    def test_subtitle_and_speech_dialogue_count_as_one_support_group(self) -> None:
+        resolution = resolve_identity(
+            [_candidate("claimed", claimed=True)],
+            [
+                _evidence("claimed", "subtitle_text", 0.42, "subtitle-dialogue:1"),
+                _evidence("claimed", "speech", 0.78, "subtitle-dialogue:1"),
+            ],
+            self.CLAIM,
+        )
+        candidate = resolution.candidates[0]
+        self.assertEqual(candidate.support_groups, 1)
+        self.assertAlmostEqual(candidate.support_strength, 0.78)
+        self.assertEqual(candidate.independent_categories, 1)
+        self.assertEqual(
+            candidate.details["correlation_groups"],
+            ["subtitle-dialogue:1"],
+        )
 
     def test_three_independent_signals_can_verify_claimed_episode(self) -> None:
         resolution = resolve_identity(
@@ -206,6 +239,42 @@ class ConservativeResolverTests(unittest.TestCase):
             resolution.state, IdentityResultState.EPISODE_ORDER_CONFLICT
         )
 
+    def test_alternate_order_near_tie_is_inconclusive_before_actionable_state(self) -> None:
+        claimed = _candidate(
+            "same-content",
+            claimed=True,
+            episode=1,
+            mappings=[
+                {
+                    "order_namespace": "production",
+                    "order_name": "Production",
+                    "season": 1,
+                    "episode": 1,
+                },
+                {
+                    "order_namespace": "default",
+                    "order_name": "Default",
+                    "season": 1,
+                    "episode": 4,
+                },
+            ],
+        )
+        other = _candidate("other", episode=2)
+        resolution = resolve_identity(
+            [claimed, other],
+            [
+                _evidence("same-content", "claimed_identity", 0.35, "claim"),
+                _evidence("same-content", "container_metadata", 0.18, "runtime"),
+                _evidence("same-content", "subtitle_text", 0.90, "dialogue"),
+                _evidence("other", "container_metadata", 0.18, "runtime"),
+                _evidence("other", "subtitle_text", 0.89, "dialogue"),
+            ],
+            self.CLAIM,
+        )
+        self.assertEqual(resolution.best_candidate_key, "same-content")
+        self.assertLess(resolution.margin, 0.12)
+        self.assertEqual(resolution.state, IdentityResultState.INCONCLUSIVE)
+
     def test_correct_heavy_cohort_produces_no_mismatch_states(self) -> None:
         mismatch_states = {
             IdentityResultState.POSSIBLE_MISMATCH,
@@ -301,6 +370,59 @@ class DecisionServiceTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def _reviewed_action_kwargs(
+        self,
+        scan_id: int,
+        *,
+        current: bool = False,
+    ) -> dict[str, object]:
+        detail = self.service.scan_detail(
+            int(scan_id),
+            verify_actionable_content=False,
+            include_confirmation=False,
+        )
+        if current:
+            claimed_keys = list(detail.get("claimed_candidate_keys") or [])
+            candidate_key = claimed_keys[0] if len(claimed_keys) == 1 else ""
+        else:
+            candidate_key = str(detail.get("best_candidate_key") or "")
+            if not candidate_key:
+                candidates = list(detail.get("candidates") or [])
+                candidate_key = (
+                    str(candidates[0].get("candidate_key") or "")
+                    if candidates
+                    else "unavailable"
+                )
+        return {
+            "expected_result_revision": int(
+                detail.get("result_revision") or 0
+            ),
+            "expected_decision_snapshot_sha256": str(
+                detail.get("decision_snapshot_sha256") or ""
+            ),
+            "expected_candidate_key": candidate_key,
+        }
+
+    def _confirm_current(self, scan_id: int):
+        return self.service.confirm_current(
+            int(scan_id),
+            None,
+            **self._reviewed_action_kwargs(scan_id, current=True),
+        )
+
+    def _confirm_best(self, scan_id: int):
+        return self.service.confirm_best(
+            int(scan_id),
+            None,
+            **self._reviewed_action_kwargs(scan_id),
+        )
+
+    def _rename_preview(self, scan_id: int):
+        return self.service.rename_preview(
+            int(scan_id),
+            **self._reviewed_action_kwargs(scan_id),
+        )
+
     def _insert_mismatch_scan(self, stat_result) -> int:
         claimed_ref = IdentityReference(
             "episode", "tvdb", "1001", expected_episode_id=1,
@@ -391,7 +513,69 @@ class DecisionServiceTests(unittest.TestCase):
                     ),
                 ],
             )
+            file_row = FastIdentityService._file_row(conn, 1)
+            streams = FastIdentityService._stream_rows(conn, 1)
+            candidate_set = generate_episode_candidates(
+                conn,
+                title_id=1,
+                season=1,
+                episode_start=1,
+                episode_end=1,
+                include_specials=False,
+                language="eng",
+            )
+            signatures = scan_input_signatures(
+                file_row,
+                streams,
+                candidate_set,
+                [],
+                language="eng",
+                expanded_specials=False,
+            )
+            claimed_identity = {
+                "identity_kind": "episode",
+                "season": 1,
+                "episode_start": 1,
+                "episode_end": 1,
+                "filename": self.media.name,
+                "scan_language": "eng",
+                "expanded_specials": False,
+                "input_signature_version": SCAN_INPUT_SIGNATURE_VERSION,
+                "input_signatures": signatures,
+                "decision_algorithm_version": (
+                    EPISODE_IDENTITY_DECISION_ALGORITHM_VERSION
+                ),
+            }
+            conn.execute(
+                """UPDATE media_identity_scans
+                   SET claimed_identity_json=?,metadata_signature=?
+                   WHERE id=?""",
+                (
+                    json.dumps(claimed_identity, sort_keys=True),
+                    combined_scan_input_signature(signatures),
+                    scan_id,
+                ),
+            )
+            seal_decision_snapshot(conn, scan_id, revision=1)
         return scan_id
+
+    def _advance_scan_revision(self, scan_id: int | None = None) -> None:
+        target_scan_id = int(scan_id or self.scan_id)
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT claimed_identity_json FROM media_identity_scans WHERE id=?",
+                (target_scan_id,),
+            ).fetchone()
+            self.assertIsNotNone(row)
+            revision = result_revision(
+                {"claimed_identity_json": row["claimed_identity_json"]}
+            )
+            self.assertGreater(revision, 0)
+            seal_decision_snapshot(
+                conn,
+                target_scan_id,
+                revision=revision + 1,
+            )
 
     def _seed_real_fast_mismatch_inputs(self) -> Path:
         with self.database.connect() as conn:
@@ -451,7 +635,7 @@ class DecisionServiceTests(unittest.TestCase):
         return sidecar
 
     def test_rename_preview_does_not_resolve_a_completed_pending_scan(self) -> None:
-        preview = self.service.rename_preview(self.scan_id)
+        preview = self._rename_preview(self.scan_id)
         self.assertFalse(preview["available"])
         self.assertEqual(preview["status"], "unavailable")
         self.assertTrue(preview["scan"]["decision_pending"])
@@ -525,7 +709,188 @@ class DecisionServiceTests(unittest.TestCase):
         self.assertFalse(detail["actionable"])
         self.assertEqual(self.service.mie_findings(), [])
 
-    def test_snapshot_sha_requires_current_matching_hash_record(self) -> None:
+    def test_deep_history_limit_fails_closed_before_lower_profiles(self) -> None:
+        current = self.media.stat()
+        deep_ids: list[int] = []
+        with self.database.connect() as conn:
+            for _ in range(9):
+                cursor = conn.execute(
+                    """INSERT INTO media_identity_scans(
+                         file_id,identity_kind,requested_profile,completed_profile,
+                         status,stage,claimed_identity_json,file_size_bytes,
+                         file_modified_at,file_sha256,metadata_signature,
+                         result_state,completed_at
+                       ) VALUES (
+                         1,'episode','deep','deep','complete','deep_complete','{}',
+                         ?,? ,?,'deep-history-fixture','strong_match_other',
+                         CURRENT_TIMESTAMP
+                       )""",
+                    (
+                        current.st_size,
+                        current.st_mtime,
+                        "a" * 64,
+                    ),
+                )
+                deep_ids.append(int(cursor.lastrowid))
+            latest = conn.execute(
+                """INSERT INTO media_identity_scans(
+                     file_id,identity_kind,requested_profile,completed_profile,
+                     status,stage,claimed_identity_json,file_size_bytes,
+                     file_modified_at,file_sha256,metadata_signature,
+                     result_state,completed_at
+                   ) VALUES (
+                     1,'episode','fast','fast','complete','resolved','{}',
+                     ?,? ,?,'deep-history-fixture','inconclusive',
+                     CURRENT_TIMESTAMP
+                   )""",
+                (
+                    current.st_size,
+                    current.st_mtime,
+                    "a" * 64,
+                ),
+            )
+            latest_id = int(latest.lastrowid)
+
+        checked_deep_ids = list(reversed(deep_ids[-8:]))
+
+        def fake_detail(scan_id: int, *args, **kwargs):
+            if int(scan_id) == latest_id:
+                return {
+                    "id": latest_id,
+                    "file_id": 1,
+                    "file": {
+                        "root_id": 1,
+                        "title_id": 1,
+                        "filename": self.media.name,
+                    },
+                    "snapshot_current": True,
+                }
+            if int(scan_id) in checked_deep_ids:
+                return {
+                    "id": int(scan_id),
+                    "file_id": 1,
+                    "snapshot_current": False,
+                }
+            raise AssertionError(
+                f"Deep history validation escaped its bound: {scan_id}"
+            )
+
+        with patch.object(
+            self.service,
+            "scan_detail",
+            side_effect=fake_detail,
+        ) as scan_detail:
+            findings = self.service.mie_findings()
+
+        self.assertEqual(len(findings), 1)
+        finding = findings[0]
+        self.assertEqual(
+            finding["rule_key"],
+            "episode-identity-history-uncertain",
+        )
+        self.assertEqual(finding["evidence"]["profile"], "deep")
+        self.assertEqual(finding["evidence"]["latest_scan_id"], latest_id)
+        self.assertEqual(finding["evidence"]["deep_history_checked"], 8)
+        self.assertEqual(
+            finding["evidence"]["deep_history_validation_limit"],
+            8,
+        )
+        self.assertTrue(finding["evidence"]["history_truncated"])
+        self.assertEqual(
+            [call.args[0] for call in scan_detail.call_args_list[:-1]],
+            checked_deep_ids,
+        )
+        self.assertEqual(
+            scan_detail.call_args_list[-1].args[0],
+            latest_id,
+        )
+        self.assertNotIn(deep_ids[0], [
+            call.args[0] for call in scan_detail.call_args_list
+        ])
+
+    def test_newer_weaker_scan_does_not_hide_deep_correlation_retry(self) -> None:
+        current = self.media.stat()
+        with self.database.connect() as conn:
+            deep = conn.execute(
+                """INSERT INTO media_identity_scans(
+                     file_id,identity_kind,requested_profile,completed_profile,
+                     status,stage,claimed_identity_json,file_size_bytes,
+                     file_modified_at,file_sha256,metadata_signature,
+                     result_state,completed_at
+                   ) VALUES (
+                     1,'episode','deep','deep','complete','deep_resolved','{}',
+                     ?,?,?, 'deep-retry-fixture','strong_match_other',
+                     CURRENT_TIMESTAMP
+                   )""",
+                (
+                    current.st_size,
+                    current.st_mtime,
+                    "a" * 64,
+                ),
+            )
+            deep_id = int(deep.lastrowid)
+            latest = conn.execute(
+                """INSERT INTO media_identity_scans(
+                     file_id,identity_kind,requested_profile,completed_profile,
+                     status,stage,claimed_identity_json,file_size_bytes,
+                     file_modified_at,file_sha256,metadata_signature,
+                     result_state,completed_at
+                   ) VALUES (
+                     1,'episode','fast','fast','complete','resolved','{}',
+                     ?,?,?, 'deep-retry-fixture','inconclusive',
+                     CURRENT_TIMESTAMP
+                   )""",
+                (
+                    current.st_size,
+                    current.st_mtime,
+                    "a" * 64,
+                ),
+            )
+            latest_id = int(latest.lastrowid)
+
+        def fake_detail(scan_id: int, *args, **kwargs):
+            if int(scan_id) == deep_id:
+                return {
+                    "id": deep_id,
+                    "file_id": 1,
+                    "file": {
+                        "root_id": 1,
+                        "title_id": 1,
+                        "filename": self.media.name,
+                    },
+                    "snapshot_current": True,
+                    "result_state": "strong_match_other",
+                    "result_revision": 7,
+                    "decision_snapshot_sha256": "b" * 64,
+                    "deep_correlation_required": True,
+                    "deep_correlation_ready": False,
+                }
+            if int(scan_id) == latest_id:
+                raise AssertionError(
+                    "A newer weaker scan must not replace a current Deep retry state."
+                )
+            raise AssertionError(f"Unexpected scan detail request: {scan_id}")
+
+        with patch.object(
+            self.service,
+            "scan_detail",
+            side_effect=fake_detail,
+        ):
+            findings = self.service.mie_findings()
+
+        self.assertEqual(len(findings), 1)
+        finding = findings[0]
+        self.assertEqual(
+            finding["rule_key"],
+            "episode-identity-deep-review",
+        )
+        self.assertEqual(
+            finding["evidence"]["deep_review_state"],
+            "correlation_incomplete",
+        )
+        self.assertEqual(finding["evidence"]["scan_id"], deep_id)
+
+    def test_snapshot_sha_does_not_trust_or_require_cached_hash_record(self) -> None:
         self.service.resolve_scan(self.scan_id)
         digest = hashlib.sha256(self.media.read_bytes()).hexdigest()
         current = self.media.stat()
@@ -541,15 +906,36 @@ class DecisionServiceTests(unittest.TestCase):
                    ) VALUES (1,?,?,?,'complete',CURRENT_TIMESTAMP)""",
                 (digest, current.st_size, current.st_mtime),
             )
+            scan = conn.execute(
+                "SELECT claimed_identity_json FROM media_identity_scans WHERE id=?",
+                (self.scan_id,),
+            ).fetchone()
+            seal_decision_snapshot(
+                conn,
+                self.scan_id,
+                revision=result_revision(
+                    {"claimed_identity_json": scan["claimed_identity_json"]}
+                ) + 1,
+            )
 
         self.assertTrue(self.service.scan_detail(self.scan_id)["snapshot_current"])
         with self.database.connect() as conn:
             conn.execute("DELETE FROM media_file_hashes WHERE file_id=1")
+        self.assertTrue(self.service.scan_detail(self.scan_id)["snapshot_current"])
+
+        original = self.media.stat()
+        payload = bytearray(self.media.read_bytes())
+        payload[0] ^= 0x01
+        self.media.write_bytes(bytes(payload))
+        os.utime(
+            self.media,
+            ns=(original.st_atime_ns, original.st_mtime_ns),
+        )
         self.assertFalse(self.service.scan_detail(self.scan_id)["snapshot_current"])
 
     def test_confirmation_is_snapshot_bound_and_becomes_stale(self) -> None:
         self.service.resolve_scan(self.scan_id)
-        confirmation = self.service.confirm_current(self.scan_id, None)
+        confirmation = self._confirm_current(self.scan_id)
         self.assertTrue(confirmation["current"])
 
         original = self.media.stat()
@@ -563,15 +949,184 @@ class DecisionServiceTests(unittest.TestCase):
         self.assertFalse(stale["current"])
         self.assertEqual(stale["freshness"], "stale")
 
+    def test_confirmation_source_scan_deletion_preserves_audit_but_stales(self) -> None:
+        self.service.resolve_scan(self.scan_id)
+        confirmation = self._confirm_current(self.scan_id)
+        self.assertTrue(confirmation["current"])
+        self.assertEqual(confirmation["source_scan_id"], self.scan_id)
+        self.assertEqual(
+            confirmation["source_scan_snapshot_id"],
+            self.scan_id,
+        )
+        self.assertGreater(
+            int(confirmation["source_result_revision"]),
+            0,
+        )
+        audit_digest = confirmation["source_decision_snapshot_sha256"]
+        audit_signature = confirmation["source_metadata_signature"]
+        self.assertEqual(len(audit_digest), 64)
+        self.assertTrue(audit_signature)
+
+        with self.database.connect() as conn:
+            conn.execute(
+                "DELETE FROM media_identity_scans WHERE id=?",
+                (self.scan_id,),
+            )
+            stored = conn.execute(
+                """SELECT source_scan_id,source_scan_snapshot_id,
+                          source_result_revision,
+                          source_decision_snapshot_sha256,
+                          source_metadata_signature
+                   FROM media_identity_confirmations
+                   WHERE file_id=1"""
+            ).fetchone()
+
+        self.assertIsNone(stored["source_scan_id"])
+        self.assertEqual(stored["source_scan_snapshot_id"], self.scan_id)
+        self.assertGreater(int(stored["source_result_revision"]), 0)
+        self.assertEqual(
+            stored["source_decision_snapshot_sha256"],
+            audit_digest,
+        )
+        self.assertEqual(
+            stored["source_metadata_signature"],
+            audit_signature,
+        )
+
+        stale = self.service.confirmation_status(1)
+        self.assertIsNotNone(stale)
+        self.assertFalse(stale["current"])
+        self.assertEqual(stale["freshness"], "stale")
+        self.assertEqual(stale["source_scan_snapshot_id"], self.scan_id)
+        self.assertEqual(
+            stale["source_decision_snapshot_sha256"],
+            audit_digest,
+        )
+
+    def test_dismissed_finding_does_not_suppress_new_decision_snapshot(self) -> None:
+        self.service.resolve_scan(self.scan_id)
+        mie = MediaIntelligenceHistoryEngine(self.database)
+        mie.analyze()
+        first_findings = [
+            item for item in mie.findings()
+            if item["rule_key"] == "episode-identity-review"
+        ]
+        self.assertEqual(len(first_findings), 1)
+        first = first_findings[0]
+        self.assertTrue(
+            mie.dismiss(
+                int(first["id"]),
+                None,
+                reason="expected",
+                scope="finding",
+            )
+        )
+
+        self._advance_scan_revision()
+        mie.analyze()
+        current_findings = [
+            item for item in mie.findings()
+            if item["rule_key"] == "episode-identity-review"
+        ]
+        self.assertEqual(len(current_findings), 1)
+        self.assertNotEqual(
+            current_findings[0]["fingerprint"],
+            first["fingerprint"],
+        )
+        evidence = current_findings[0]["evidence"]
+        self.assertGreater(int(evidence["result_revision"]), 0)
+        self.assertEqual(len(evidence["decision_snapshot_sha256"]), 64)
+
+    def test_restore_reconciles_obsolete_episode_identity_fingerprint(self) -> None:
+        self.service.resolve_scan(self.scan_id)
+        mie = MediaIntelligenceHistoryEngine(self.database)
+        mie.analyze()
+        first = next(
+            item
+            for item in mie.findings()
+            if item["rule_key"] == "episode-identity-review"
+        )
+        self.assertTrue(
+            mie.dismiss(
+                int(first["id"]),
+                None,
+                reason="expected",
+                scope="finding",
+            )
+        )
+
+        # Publish a new sealed revision without reconciling MIE first. Restore
+        # must not blindly reactivate the dismissed revision-2 fingerprint.
+        self._advance_scan_revision()
+        self.assertTrue(mie.restore(int(first["id"])))
+
+        active = [
+            item
+            for item in mie.findings()
+            if item["rule_key"] == "episode-identity-review"
+        ]
+        self.assertEqual(len(active), 1)
+        self.assertNotEqual(active[0]["fingerprint"], first["fingerprint"])
+        with self.database.connect() as conn:
+            historical = conn.execute(
+                "SELECT status FROM mie_findings WHERE id=?",
+                (int(first["id"]),),
+            ).fetchone()
+        self.assertIsNotNone(historical)
+        self.assertEqual(historical["status"], "resolved")
+
+    def test_delete_feedback_reconciles_obsolete_episode_identity_fingerprint(
+        self,
+    ) -> None:
+        self.service.resolve_scan(self.scan_id)
+        mie = MediaIntelligenceHistoryEngine(self.database)
+        mie.analyze()
+        first = next(
+            item
+            for item in mie.findings()
+            if item["rule_key"] == "episode-identity-review"
+        )
+        self.assertTrue(
+            mie.dismiss(
+                int(first["id"]),
+                None,
+                reason="expected",
+                scope="finding",
+            )
+        )
+        feedback = next(
+            item
+            for item in mie.feedback()
+            if item["finding_fingerprint"] == first["fingerprint"]
+        )
+
+        self._advance_scan_revision()
+        self.assertTrue(mie.delete_feedback(int(feedback["id"])))
+
+        active = [
+            item
+            for item in mie.findings()
+            if item["rule_key"] == "episode-identity-review"
+        ]
+        self.assertEqual(len(active), 1)
+        self.assertNotEqual(active[0]["fingerprint"], first["fingerprint"])
+        with self.database.connect() as conn:
+            historical = conn.execute(
+                "SELECT status FROM mie_findings WHERE id=?",
+                (int(first["id"]),),
+            ).fetchone()
+        self.assertIsNotNone(historical)
+        self.assertEqual(historical["status"], "resolved")
+
     def test_mark_correct_suppresses_advisory_finding_only_for_current_snapshot(self) -> None:
         self.service.resolve_scan(self.scan_id)
         self.assertEqual(len(self.service.mie_findings()), 1)
-        self.service.confirm_current(self.scan_id, None)
+        self._confirm_current(self.scan_id)
         self.assertEqual(self.service.mie_findings(), [])
         detail = self.service.scan_detail(self.scan_id)
         self.assertTrue(detail["confirmed_claimed"])
         self.assertFalse(detail["actionable"])
-        preview = self.service.rename_preview(self.scan_id)
+        preview = self._rename_preview(self.scan_id)
         self.assertFalse(preview["available"])
         self.assertEqual(preview["status"], "unavailable")
 
@@ -585,22 +1140,72 @@ class DecisionServiceTests(unittest.TestCase):
                 (self.scan_id,),
             )
         with self.assertRaisesRegex(
-            ValueError, "not strong enough to confirm an alternate episode"
+            ValueError,
+            (
+                "changed after this identity scan"
+                "|sealed Episode Identity decision no longer matches"
+            ),
         ):
-            self.service.confirm_best(self.scan_id, None)
+            self._confirm_best(self.scan_id)
 
     def test_confirm_best_keeps_reviewable_filename_disagreement(self) -> None:
         self.service.resolve_scan(self.scan_id)
-        confirmation = self.service.confirm_best(self.scan_id, None)
+        confirmation = self._confirm_best(self.scan_id)
         self.assertTrue(confirmation["current"])
         findings = self.service.mie_findings()
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["rule_key"], "episode-identity-review")
 
+    def test_confirm_current_rejects_superseded_review_revision(self) -> None:
+        self.service.resolve_scan(self.scan_id)
+        displayed = self._reviewed_action_kwargs(
+            self.scan_id,
+            current=True,
+        )
+        self._advance_scan_revision()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "changed after it was reviewed",
+        ):
+            self.service.confirm_current(
+                self.scan_id,
+                None,
+                **displayed,
+            )
+
+        with self.database.connect() as conn:
+            count = conn.execute(
+                """SELECT COUNT(*) FROM media_identity_confirmations
+                   WHERE file_id=1"""
+            ).fetchone()[0]
+        self.assertEqual(count, 0)
+
+    def test_confirm_best_rejects_superseded_review_revision(self) -> None:
+        self.service.resolve_scan(self.scan_id)
+        displayed = self._reviewed_action_kwargs(self.scan_id)
+        self._advance_scan_revision()
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "changed after it was reviewed",
+        ):
+            self.service.confirm_best(
+                self.scan_id,
+                None,
+                **displayed,
+            )
+
+        with self.database.connect() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM media_identity_confirmations WHERE file_id=1"
+            ).fetchone()[0]
+        self.assertEqual(count, 0)
+
     def test_rename_preview_is_read_only_and_targets_best_candidate(self) -> None:
         self.service.resolve_scan(self.scan_id)
         before = self.media.read_bytes()
-        preview = self.service.rename_preview(self.scan_id)
+        preview = self._rename_preview(self.scan_id)
         self.assertEqual(preview["status"], "ready")
         self.assertEqual(preview["target_episode"], 2)
         self.assertIn("S01E02", Path(preview["destination"]).name)
@@ -613,6 +1218,41 @@ class DecisionServiceTests(unittest.TestCase):
             ).fetchone()
         self.assertEqual(file_row["path"], str(self.media))
         self.assertEqual(file_row["episode_start"], 1)
+
+    def test_rename_preview_rejects_superseded_review_revision(self) -> None:
+        self.service.resolve_scan(self.scan_id)
+        displayed = self._reviewed_action_kwargs(self.scan_id)
+        self._advance_scan_revision()
+
+        preview = self.service.rename_preview(
+            self.scan_id,
+            **displayed,
+        )
+
+        self.assertFalse(preview["available"])
+        self.assertEqual(preview["status"], "stale")
+        self.assertFalse(preview["scan"]["snapshot_current"])
+        self.assertFalse(preview["scan"]["actionable"])
+
+    def test_rename_preview_final_validation_starts_read_transaction(self) -> None:
+        self.service.resolve_scan(self.scan_id)
+        original = MediaIdentityDecisionService._scan_snapshot
+        transaction_states: list[bool] = []
+
+        def observed_snapshot(conn, scan_id):
+            transaction_states.append(bool(conn.in_transaction))
+            return original(conn, scan_id)
+
+        with patch.object(
+            MediaIdentityDecisionService,
+            "_scan_snapshot",
+            side_effect=observed_snapshot,
+        ):
+            preview = self._rename_preview(self.scan_id)
+
+        self.assertEqual(preview["status"], "ready")
+        self.assertTrue(transaction_states)
+        self.assertTrue(transaction_states[-1])
 
     def test_real_fast_scan_flows_through_decision_mie_and_sidecar_freshness(self) -> None:
         sidecar = self._seed_real_fast_mismatch_inputs()
@@ -629,7 +1269,7 @@ class DecisionServiceTests(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["evidence"]["scan_id"], scan.scan_id)
         self.assertEqual(findings[0]["evidence"]["result_state"], "strong_match_other")
-        preview = self.service.rename_preview(scan.scan_id)
+        preview = self._rename_preview(scan.scan_id)
         self.assertEqual(preview["status"], "ready")
         self.assertEqual(preview["target_episode"], 2)
 
@@ -646,16 +1286,245 @@ class DecisionServiceTests(unittest.TestCase):
         with self.assertRaisesRegex(
             ValueError, "changed after this identity scan"
         ):
-            self.service.confirm_best(scan.scan_id, None)
-        stale_preview = self.service.rename_preview(scan.scan_id)
+            self._confirm_best(scan.scan_id)
+        stale_preview = self._rename_preview(scan.scan_id)
         self.assertFalse(stale_preview["available"])
         self.assertEqual(stale_preview["status"], "stale")
+
+    def _resolved_real_fast_scan(self):
+        sidecar = self._seed_real_fast_mismatch_inputs()
+        scan = FastIdentityService(self.database).scan_file(1)
+        self.service.resolve_scan(scan.scan_id)
+        self.assertTrue(self.service.scan_detail(scan.scan_id)["snapshot_current"])
+        return scan, sidecar
+
+    def test_same_size_same_mtime_media_edit_invalidates_actionable_scan(self) -> None:
+        scan, _ = self._resolved_real_fast_scan()
+        before = self.media.stat()
+        original = self.media.read_bytes()
+        replacement = bytes(
+            (value ^ 0x01) if index == 0 else value
+            for index, value in enumerate(original)
+        )
+        self.assertEqual(len(replacement), len(original))
+        self.media.write_bytes(replacement)
+        os.utime(
+            self.media,
+            ns=(before.st_atime_ns, before.st_mtime_ns),
+        )
+
+        detail = self.service.scan_detail(scan.scan_id)
+        self.assertFalse(detail["snapshot_current"])
+        self.assertFalse(detail["actionable"])
+        self.assertEqual(
+            self._rename_preview(scan.scan_id)["status"],
+            "stale",
+        )
+        with self.assertRaisesRegex(ValueError, "changed after this identity scan"):
+            self._confirm_best(scan.scan_id)
+
+    def test_equal_size_equal_mtime_sidecar_edit_invalidates_scan(self) -> None:
+        scan, sidecar = self._resolved_real_fast_scan()
+        before = sidecar.stat()
+        original = sidecar.read_bytes()
+        replacement = bytearray(original)
+        replacement[-2] = (
+            ord("x") if replacement[-2] != ord("x") else ord("y")
+        )
+        sidecar.write_bytes(bytes(replacement))
+        os.utime(
+            sidecar,
+            ns=(before.st_atime_ns, before.st_mtime_ns),
+        )
+
+        detail = self.service.scan_detail(scan.scan_id)
+        self.assertFalse(detail["snapshot_current"])
+        self.assertFalse(detail["actionable"])
+
+    def test_provider_snapshot_change_invalidates_action_and_confirmation(self) -> None:
+        scan, _ = self._resolved_real_fast_scan()
+        confirmation = self._confirm_best(scan.scan_id)
+        self.assertTrue(confirmation["current"])
+
+        with self.database.connect() as conn:
+            conn.execute(
+                """UPDATE provider_episode_series_cache
+                   SET source_signature='provider-v2'
+                   WHERE provider='tvdb' AND provider_series_id='4242'
+                     AND language='eng'"""
+            )
+
+        detail = self.service.scan_detail(scan.scan_id)
+        self.assertFalse(detail["snapshot_current"])
+        self.assertFalse(detail["actionable"])
+        stale_confirmation = self.service.confirmation_status(1)
+        self.assertIsNotNone(stale_confirmation)
+        self.assertFalse(stale_confirmation["current"])
+        with self.assertRaisesRegex(ValueError, "changed after this identity scan"):
+            self._confirm_best(scan.scan_id)
+        self.assertEqual(self._rename_preview(scan.scan_id)["status"], "stale")
+
+    def test_title_provider_identity_change_invalidates_scan(self) -> None:
+        scan, _ = self._resolved_real_fast_scan()
+        with self.database.connect() as conn:
+            conn.execute("UPDATE titles SET tvdb_id=9999 WHERE id=1")
+
+        detail = self.service.scan_detail(scan.scan_id)
+        self.assertFalse(detail["snapshot_current"])
+        self.assertFalse(detail["actionable"])
+
+    def test_runtime_metadata_change_invalidates_scan(self) -> None:
+        scan, _ = self._resolved_real_fast_scan()
+        with self.database.connect() as conn:
+            conn.execute(
+                "UPDATE files SET runtime_seconds=1500 WHERE id=1"
+            )
+
+        detail = self.service.scan_detail(scan.scan_id)
+        self.assertFalse(detail["snapshot_current"])
+        self.assertFalse(detail["actionable"])
+
+    def test_stream_selection_change_invalidates_scan(self) -> None:
+        scan, _ = self._resolved_real_fast_scan()
+        with self.database.connect() as conn:
+            conn.execute(
+                """INSERT INTO media_streams(
+                     file_id,stream_index,stream_type,codec,language,title,
+                     channels,default_flag,forced_flag,disposition_json
+                   ) VALUES (1,7,'audio','AAC','eng','Added Track',2,0,0,'{}')"""
+            )
+
+        detail = self.service.scan_detail(scan.scan_id)
+        self.assertFalse(detail["snapshot_current"])
+        self.assertFalse(detail["actionable"])
+
+    def test_unselected_new_sidecar_invalidates_full_subtitle_selection(self) -> None:
+        scan, sidecar = self._resolved_real_fast_scan()
+        extra = self.media.with_suffix(".commentary.srt")
+        extra.write_text(
+            "1\n00:00:00,000 --> 00:00:03,000\n"
+            "unrelated commentary subtitle that was not in the scan\n",
+            encoding="utf-8",
+        )
+        self.assertTrue(sidecar.exists())
+
+        detail = self.service.scan_detail(scan.scan_id)
+        self.assertFalse(detail["snapshot_current"])
+        self.assertFalse(detail["actionable"])
+        self.assertEqual(self._rename_preview(scan.scan_id)["status"], "stale")
+
+    def test_legacy_scan_without_complete_input_manifest_is_non_actionable(self) -> None:
+        self.service.resolve_scan(self.scan_id)
+        with self.database.connect() as conn:
+            scan = conn.execute(
+                "SELECT claimed_identity_json FROM media_identity_scans WHERE id=?",
+                (self.scan_id,),
+            ).fetchone()
+            claimed = json.loads(scan["claimed_identity_json"])
+            claimed.pop("input_signature_version", None)
+            claimed.pop("input_signatures", None)
+            conn.execute(
+                """UPDATE media_identity_scans
+                   SET claimed_identity_json=?,metadata_signature='legacy'
+                   WHERE id=?""",
+                (json.dumps(claimed), self.scan_id),
+            )
+
+        detail = self.service.scan_detail(self.scan_id)
+        self.assertFalse(detail["snapshot_current"])
+        self.assertFalse(detail["actionable"])
+        self.assertEqual(self.service.mie_findings(), [])
+        self.assertEqual(self._rename_preview(self.scan_id)["status"], "stale")
+
+    def test_persisted_candidate_identity_tamper_stales_resolved_result(self) -> None:
+        self.service.resolve_scan(self.scan_id)
+        with self.database.connect() as conn:
+            best = conn.execute(
+                "SELECT best_candidate_key FROM media_identity_scans WHERE id=?",
+                (self.scan_id,),
+            ).fetchone()
+            conn.execute(
+                """UPDATE media_identity_candidates
+                   SET provider_item_id='tampered-provider-id'
+                   WHERE scan_id=? AND candidate_key=?""",
+                (self.scan_id, best["best_candidate_key"]),
+            )
+
+        detail = self.service.scan_detail(self.scan_id)
+        self.assertEqual(detail["result_state"], "strong_match_other")
+        self.assertFalse(detail["snapshot_current"])
+        self.assertFalse(detail["actionable"])
+        self.assertEqual(self._rename_preview(self.scan_id)["status"], "stale")
+        with self.assertRaisesRegex(
+            ValueError,
+            (
+                "changed after this identity scan"
+                "|sealed Episode Identity decision no longer matches"
+            ),
+        ):
+            self._confirm_best(self.scan_id)
+
+    def test_persisted_evidence_tamper_cannot_leave_stored_mismatch_actionable(self) -> None:
+        self.service.resolve_scan(self.scan_id)
+        with self.database.connect() as conn:
+            conn.execute(
+                """UPDATE media_identity_evidence
+                   SET relation='neutral',strength=0
+                   WHERE scan_id=? AND evidence_category='subtitle_text'""",
+                (self.scan_id,),
+            )
+
+        detail = self.service.scan_detail(self.scan_id)
+        self.assertEqual(detail["result_state"], "strong_match_other")
+        self.assertEqual(detail["resolution_explanation"], self.service._resolve_snapshot(
+            {
+                **detail,
+                "claimed_identity_json": json.dumps(detail["claimed_identity"]),
+            },
+            detail["candidates"],
+            detail["evidence"],
+        ).explanation)
+        self.assertFalse(detail["snapshot_current"])
+        self.assertFalse(detail["actionable"])
+        with self.assertRaisesRegex(
+            ValueError,
+            (
+                "changed after this identity scan"
+                "|sealed Episode Identity decision no longer matches"
+            ),
+        ):
+            self._confirm_best(self.scan_id)
+
+    def test_sealed_result_revision_is_immutable_and_resolution_advances_it(self) -> None:
+        with self.database.connect() as conn:
+            before = conn.execute(
+                "SELECT claimed_identity_json FROM media_identity_scans WHERE id=?",
+                (self.scan_id,),
+            ).fetchone()
+            self.assertEqual(
+                result_revision(
+                    {"claimed_identity_json": before["claimed_identity_json"]}
+                ),
+                1,
+            )
+            with self.assertRaises(DecisionSnapshotError):
+                seal_decision_snapshot(conn, self.scan_id, revision=1)
+
+        self.service.resolve_scan(self.scan_id)
+        with self.database.connect() as conn:
+            after = conn.execute(
+                "SELECT claimed_identity_json FROM media_identity_scans WHERE id=?",
+                (self.scan_id,),
+            ).fetchone()
+        claimed = json.loads(after["claimed_identity_json"])
+        self.assertEqual(claimed["result_revision"], 2)
+        self.assertEqual(claimed["decision_snapshot"]["revision"], 2)
 
     def test_file_change_blocks_confirmation(self) -> None:
         self.service.resolve_scan(self.scan_id)
         self.media.write_bytes(b"changed")
         with self.assertRaisesRegex(ValueError, "changed after this identity scan"):
-            self.service.confirm_current(self.scan_id, None)
+            self._confirm_current(self.scan_id)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@ from typing import Any, Iterable
 
 from ..db import Database
 from .candidates import CandidateSet, generate_episode_candidates
+from .decision_snapshot import seal_decision_snapshot
+from .media_generation import media_content_sha256, media_generation_identity
 from .models import (
     EvidenceCategory,
     EvidenceRelation,
@@ -17,6 +19,7 @@ from .models import (
     IdentityEvidence,
     IdentityProfile,
 )
+from .versions import EPISODE_IDENTITY_DECISION_ALGORITHM_VERSION
 from .text import (
     SidecarIdentity,
     SidecarText,
@@ -33,6 +36,7 @@ TEXT_SUPPORT_THRESHOLD = 0.30
 SPECIAL_EXPANSION_THRESHOLD = 0.20
 SIDECAR_ANALYZER_KEY = "sidecar-subtitle"
 SIDECAR_ANALYZER_VERSION = "1"
+SCAN_INPUT_SIGNATURE_VERSION = 3
 
 
 class FastIdentityScanError(RuntimeError):
@@ -157,6 +161,77 @@ def _candidate_snapshot_signature(candidate_set: CandidateSet) -> str:
             }
             for candidate in candidate_set.candidates
         ],
+    })
+
+
+def _sidecar_signature_rows(sidecars: Iterable[Any]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for item in sidecars:
+        identity = getattr(item, "identity", item)
+        path = getattr(identity, "path", None)
+        source_signature = str(getattr(identity, "source_signature", "") or "")
+        cache_key = str(getattr(identity, "cache_key", "") or "")
+        rows.append({
+            "path": str(path or ""),
+            "source_signature": source_signature,
+            "cache_key": cache_key,
+        })
+    return rows
+
+
+def scan_input_signatures(
+    file_row: dict[str, Any],
+    streams: list[dict[str, Any]],
+    candidate_set: CandidateSet,
+    sidecars: Iterable[Any],
+    *,
+    language: str,
+    expanded_specials: bool,
+) -> dict[str, str]:
+    """Build the complete reconstructable input signature set for one Fast scan."""
+    runtime_stream_fields = (
+        "runtime_seconds", "width", "height", "video_codec", "audio_codec",
+        "audio_channels", "bitrate", "container", "dynamic_range",
+        "media_info_at", "media_info_error",
+    )
+    generation = media_generation_identity(str(file_row.get("path") or ""))
+    signatures = {
+        "catalog": _catalog_snapshot_signature(file_row, streams),
+        "media_generation": _signature(generation or {}),
+        "title_provider_identity": _signature({
+            "title_id": file_row.get("title_id"),
+            "title_kind": file_row.get("title_kind"),
+            "tvdb_id": file_row.get("tvdb_id"),
+        }),
+        "runtime_stream": _signature({
+            "file": {
+                field: file_row.get(field)
+                for field in runtime_stream_fields
+            },
+            "streams": streams,
+        }),
+        "provider_snapshot": _signature({
+            "provider_series_id": candidate_set.provider_series_id,
+            "provider_signature": candidate_set.provider_signature,
+            "used_provider_cache": candidate_set.used_provider_cache,
+            "language": language,
+        }),
+        "candidate_snapshot": _candidate_snapshot_signature(candidate_set),
+        "subtitle_selection": _signature(
+            _sidecar_signature_rows(sidecars)
+        ),
+        "scan_options": _signature({
+            "language": language,
+            "expanded_specials": bool(expanded_specials),
+        }),
+    }
+    return signatures
+
+
+def combined_scan_input_signature(signatures: dict[str, str]) -> str:
+    return _signature({
+        "version": SCAN_INPUT_SIGNATURE_VERSION,
+        "signatures": signatures,
     })
 
 
@@ -635,25 +710,19 @@ class FastIdentityService:
         candidate_set: CandidateSet,
         streams: list[dict[str, Any]],
         sidecars: list[PreparedSidecar],
-    ) -> str:
-        return _signature({
-            "file": {
-                "id": file_row["id"],
-                "size_bytes": file_row.get("size_bytes"),
-                "modified_at": file_row.get("modified_at"),
-                "season": file_row.get("season"),
-                "episode_start": file_row.get("episode_start"),
-                "episode_end": file_row.get("episode_end"),
-                "runtime_seconds": file_row.get("runtime_seconds"),
-                "container": file_row.get("container"),
-                "video_codec": file_row.get("video_codec"),
-                "audio_codec": file_row.get("audio_codec"),
-                "media_info_at": file_row.get("media_info_at"),
-            },
-            "provider_signature": candidate_set.provider_signature,
-            "streams": streams,
-            "sidecars": [item.identity.source_signature for item in sidecars],
-        })
+        *,
+        language: str,
+        expanded_specials: bool,
+    ) -> tuple[str, dict[str, str]]:
+        signatures = scan_input_signatures(
+            file_row,
+            streams,
+            candidate_set,
+            sidecars,
+            language=language,
+            expanded_specials=expanded_specials,
+        )
+        return combined_scan_input_signature(signatures), signatures
 
     @staticmethod
     def _persist_artifacts(
@@ -802,12 +871,16 @@ class FastIdentityService:
         with self.database.connect() as conn:
             file_row = self._file_row(conn, int(file_id))
             streams = self._stream_rows(conn, int(file_id))
-            file_sha256 = self._current_sha256(conn, file_row)
             catalog_snapshot_signature = _catalog_snapshot_signature(
                 file_row, streams
             )
 
         self._verify_media_snapshot(file_row)
+        media_generation = media_generation_identity(file_row["path"])
+        if media_generation is None:
+            raise FastIdentityScanError(
+                "The media file could not be generation-bound for Episode Identity."
+            )
         sidecars = self._prepare_sidecars(file_row)
         candidate_set, expanded_specials, corpora = self._candidate_set(
             file_row, sidecars, language
@@ -820,12 +893,26 @@ class FastIdentityService:
         evidence.extend(
             self._subtitle_evidence(file_row, candidate_set.candidates, sidecars, corpora)
         )
-        metadata_signature = self._metadata_signature(
-            file_row, candidate_set, streams, sidecars
+        metadata_signature, input_signatures = self._metadata_signature(
+            file_row,
+            candidate_set,
+            streams,
+            sidecars,
+            language=language,
+            expanded_specials=expanded_specials,
         )
 
         self._verify_media_snapshot(file_row)
         self._verify_sidecars(file_row, sidecars)
+        file_sha256 = media_content_sha256(
+            file_row["path"],
+            expected_generation=media_generation,
+        )
+        if not file_sha256:
+            raise FastIdentityStaleError(
+                "The media file changed while Episode Identity verified its exact "
+                "content. Retry the scan."
+            )
 
         with self.database.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -865,6 +952,24 @@ class FastIdentityService:
             # before waiting for another catalog writer.
             self._verify_media_snapshot(file_row)
             self._verify_sidecars(file_row, sidecars)
+            if not media_generation_identity(file_row["path"]) == media_generation:
+                raise FastIdentityStaleError(
+                    "The media file generation changed before Fast persistence. "
+                    "Retry the scan."
+                )
+
+            current_signatures = scan_input_signatures(
+                current,
+                current_streams,
+                current_candidate_set,
+                sidecars,
+                language=language,
+                expanded_specials=expanded_specials,
+            )
+            if current_signatures != input_signatures:
+                raise FastIdentityStaleError(
+                    "Episode Identity inputs changed before Fast persistence. Retry the scan."
+                )
 
             claimed_identity = {
                 "identity_kind": "episode",
@@ -873,6 +978,13 @@ class FastIdentityService:
                 "episode_start": int(file_row["episode_start"]),
                 "episode_end": int(file_row["episode_end"] or file_row["episode_start"]),
                 "filename": str(file_row["filename"] or ""),
+                "scan_language": language,
+                "expanded_specials": bool(expanded_specials),
+                "input_signature_version": SCAN_INPUT_SIGNATURE_VERSION,
+                "input_signatures": input_signatures,
+                "decision_algorithm_version": (
+                    EPISODE_IDENTITY_DECISION_ALGORITHM_VERSION
+                ),
             }
             cursor = conn.execute(
                 """INSERT INTO media_identity_scans(
@@ -888,7 +1000,7 @@ class FastIdentityService:
                     file_row["modified_at"],
                     file_sha256,
                     metadata_signature,
-                    requested_by,
+                    requested_by if requested_by and int(requested_by) > 0 else None,
                 ),
             )
             scan_id = int(cursor.lastrowid)
@@ -902,6 +1014,7 @@ class FastIdentityService:
                    WHERE id=?""",
                 (scan_id,),
             )
+            seal_decision_snapshot(conn, scan_id, revision=1)
 
         return FastScanResult(
             scan_id=scan_id,

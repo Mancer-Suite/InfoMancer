@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -13,6 +14,7 @@ from typing import Any
 from ..path_mapping import ExternalPathMapper, PathMapping, PathMappingError
 from .external import ExternalSourceRegistry, ExternalSourceStatus
 from .sources.jellyfin import JellyfinTrickplaySource
+from .sources.plex import PlexBifError, PlexBifSource, normalize_plex_metadata_root
 
 
 SUPPORTED_EXTERNAL_SOURCES = frozenset({"plex", "jellyfin"})
@@ -37,6 +39,16 @@ class ExternalSourceConfig:
     last_test_server_name: str = ""
     last_test_version: str = ""
     last_test_at: str | None = None
+
+
+@dataclass(frozen=True)
+class ValidatedExternalSourceSettings:
+    source_key: str
+    enabled: bool
+    server_url: str
+    metadata_root: str
+    config: dict[str, Any]
+    config_json: str
 
 
 @dataclass(frozen=True)
@@ -114,6 +126,52 @@ def external_token_is_bound(
     )
 
 
+def external_source_config_signature(
+    conn: sqlite3.Connection,
+    source_key: str,
+) -> str | None:
+    """Return a non-secret identity for one configured external analysis source."""
+    key = str(source_key or "").strip().casefold()
+    if key not in SUPPORTED_EXTERNAL_SOURCES:
+        return None
+    row = conn.execute(
+        """SELECT source_key,enabled,server_url,metadata_root,config_json,
+                  credential_generation,config_revision
+           FROM external_analysis_sources WHERE source_key=?""",
+        (key,),
+    ).fetchone()
+    if row is None:
+        return None
+    mappings = [
+        dict(item)
+        for item in conn.execute(
+            """SELECT external_root,local_root,priority,enabled
+               FROM external_path_mappings
+               WHERE source_key=?
+               ORDER BY priority,external_root,local_root,id""",
+            (key,),
+        ).fetchall()
+    ]
+    payload = {
+        "version": 1,
+        "source_key": key,
+        "enabled": bool(row["enabled"]),
+        "server_url": str(row["server_url"] or ""),
+        "metadata_root": str(row["metadata_root"] or ""),
+        "config_json": str(row["config_json"] or "{}"),
+        "credential_generation": str(row["credential_generation"] or ""),
+        "config_revision": int(row["config_revision"] or 0),
+        "mappings": mappings,
+    }
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 class ExternalSourceConfigService:
     def __init__(self, database) -> None:
         self.database = database
@@ -176,6 +234,48 @@ class ExternalSourceConfigService:
     def sources(self) -> tuple[ExternalSourceConfig, ...]:
         return tuple(self.source(key) for key in sorted(SUPPORTED_EXTERNAL_SOURCES))
 
+    def validate_source_settings(
+        self,
+        source_key: str,
+        *,
+        enabled: bool,
+        server_url: str,
+        metadata_root: str = "",
+        config: dict[str, Any] | None = None,
+    ) -> ValidatedExternalSourceSettings:
+        """Validate and normalize every non-secret setting before credentials change."""
+        key = self._source_key(source_key)
+        url = normalize_server_url(server_url)
+        root = str(metadata_root or "").strip()
+        if key == "plex" and root:
+            try:
+                root = str(normalize_plex_metadata_root(root))
+            except PlexBifError as exc:
+                raise ExternalSourceConfigError(str(exc)) from exc
+        elif key != "plex":
+            root = ""
+        if enabled and not url:
+            raise ExternalSourceConfigError(
+                "Enter the media server URL before enabling this integration."
+            )
+        normalized_config = dict(config or {})
+        try:
+            payload = json.dumps(
+                normalized_config, sort_keys=True, separators=(",", ":")
+            )
+        except (TypeError, ValueError) as exc:
+            raise ExternalSourceConfigError(
+                "External integration settings contain an unsupported value."
+            ) from exc
+        return ValidatedExternalSourceSettings(
+            source_key=key,
+            enabled=bool(enabled),
+            server_url=url,
+            metadata_root=root,
+            config=normalized_config,
+            config_json=payload,
+        )
+
     def save_source(
         self,
         source_key: str,
@@ -186,14 +286,17 @@ class ExternalSourceConfigService:
         config: dict[str, Any] | None = None,
         credential_generation: str | None = None,
     ) -> ExternalSourceConfig:
-        key = self._source_key(source_key)
-        url = normalize_server_url(server_url)
-        root = str(metadata_root or "").strip()
-        if enabled and not url:
-            raise ExternalSourceConfigError(
-                "Enter the media server URL before enabling this integration."
-            )
-        payload = json.dumps(config or {}, sort_keys=True, separators=(",", ":"))
+        validated = self.validate_source_settings(
+            source_key,
+            enabled=enabled,
+            server_url=server_url,
+            metadata_root=metadata_root,
+            config=config,
+        )
+        key = validated.source_key
+        url = validated.server_url
+        root = validated.metadata_root
+        payload = validated.config_json
         apply_credential_generation = credential_generation is not None
         generation = str(credential_generation or "").strip()
         with self.database.connect() as conn:
@@ -210,6 +313,7 @@ class ExternalSourceConfigService:
                      config_revision=external_analysis_sources.config_revision +
                        CASE
                          WHEN external_analysis_sources.server_url != excluded.server_url
+                              OR external_analysis_sources.metadata_root != excluded.metadata_root
                               OR external_analysis_sources.config_json != excluded.config_json
                               OR (
                                 ? AND external_analysis_sources.credential_generation
@@ -504,7 +608,22 @@ def build_configured_source_registry(
                     allow_insecure_http=bool(
                         source.config.get("allow_insecure_http", False)
                     ),
-                    advertise_preview_frames=False,
+                    advertise_preview_frames=True,
+                )
+            )
+        elif source.source_key == "plex":
+            configured.append(
+                PlexBifSource(
+                    source.server_url,
+                    secrets.get("plex_token", "") if token_is_bound else "",
+                    service.mapper("plex"),
+                    metadata_root=source.metadata_root,
+                    enabled=source.enabled,
+                    last_test_status=source.last_test_status,
+                    allow_insecure_http=bool(
+                        source.config.get("allow_insecure_http", False)
+                    ),
+                    advertise_preview_frames=True,
                 )
             )
         else:
@@ -537,6 +656,15 @@ def test_external_connection(
             f"Enter a {key.title()} access token before testing the connection."
         )
 
+    if (
+        urllib.parse.urlsplit(base).scheme.casefold() == "http"
+        and not allow_insecure_http
+    ):
+        raise ExternalSourceConfigError(
+            f"{key.title()} credentials will not be sent over plain HTTP. "
+            "Use HTTPS or explicitly allow insecure HTTP for this integration."
+        )
+
     if key == "plex":
         url = base + "/"
         headers = {
@@ -546,14 +674,6 @@ def test_external_connection(
             "X-Plex-Client-Identifier": "infomancer-episode-identity",
         }
     else:
-        if (
-            urllib.parse.urlsplit(base).scheme.casefold() == "http"
-            and not allow_insecure_http
-        ):
-            raise ExternalSourceConfigError(
-                "Jellyfin credentials will not be sent over plain HTTP. "
-                "Use HTTPS or explicitly allow insecure HTTP for this integration."
-            )
         url = base + "/System/Info"
         headers = {
             "Accept": "application/json",

@@ -31,9 +31,33 @@ class SettingsUiContractTests(unittest.TestCase):
         nav = (ROOT / "app/templates/_settings_nav.html").read_text(encoding="utf-8")
         self.assertIn("/settings/integrations", nav)
         self.assertIn("Episode Identity integrations", template)
-        self.assertIn("Plex and Jellyfin are optional, read-only analysis accelerators.", template)
+        self.assertIn("FFmpeg frame extraction", template)
+        self.assertIn("Install FFmpeg for InfoMancer", template)
+        self.assertIn("/settings/integrations/ffmpeg/install", template)
+        self.assertIn("/settings/integrations/ffmpeg/remove", template)
+        self.assertIn("Local speech analysis", template)
+        self.assertIn("Install whisper.cpp for InfoMancer", template)
+        self.assertIn("pinned to whisper.cpp 1.9.4 CPU release artifacts", template)
+        self.assertNotIn(
+            "pinned to whisper.cpp {{ speech_runtime_component.version",
+            template,
+        )
+        self.assertIn("/settings/integrations/speech/runtime/install", template)
+        self.assertIn("/settings/integrations/speech/runtime/remove", template)
+        self.assertIn(
+            "/settings/integrations/speech/models/{{ model.key }}/install",
+            template,
+        )
+        self.assertIn(
+            "/settings/integrations/speech/models/{{ model.key }}/remove",
+            template,
+        )
+        self.assertIn("base-q5_1", template)
+        self.assertIn("base.en-q5_1", template)
+        self.assertIn("Plex and Jellyfin are optional, read-only Episode Identity accelerators.", template)
         self.assertIn("Test path mapping", template)
-        self.assertIn("Preview adapter", template)
+        self.assertIn("BIF adapter", template)
+        self.assertIn("Trickplay adapter", template)
         self.assertIn('type="password"', template)
         self.assertNotIn('value="{{ source.token', template)
 

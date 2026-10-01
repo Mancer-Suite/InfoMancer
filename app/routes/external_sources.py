@@ -4,10 +4,11 @@ from fastapi import APIRouter, Depends, Form, Request
 import uuid
 
 from ..access import require_librarian
+from ..managed_ffmpeg import ManagedFfmpegError
+from ..managed_speech import ManagedSpeechComponentError
 from ..media_identity.external_config import (
     ExternalSourceConfigError,
     external_token_is_bound,
-    normalize_server_url,
     test_external_connection,
 )
 from ..provider_secrets import ProviderSecretError
@@ -17,6 +18,9 @@ from .context import RouteContext
 def build_router(ctx: RouteContext):
     router = APIRouter()
     external_source_config = ctx.live("external_source_config")
+    ffmpeg_components = ctx.live("ffmpeg_components")
+    speech_runtime_component = ctx.live("speech_runtime_component")
+    speech_model_components = ctx.live("speech_model_components")
     provider_secrets = ctx.live("provider_secrets")
     record_event = ctx.live("record_event")
     redirect = ctx.live("redirect")
@@ -31,6 +35,177 @@ def build_router(ctx: RouteContext):
         dependencies = list(kwargs.pop("dependencies", ()))
         dependencies.append(Depends(require_librarian))
         return router.post(path, dependencies=dependencies, **kwargs)
+
+    @librarian_post("/settings/integrations/ffmpeg/install")
+    def install_managed_ffmpeg(request: Request):
+        try:
+            installed = ffmpeg_components.install()
+        except ManagedFfmpegError as exc:
+            record_event(
+                "settings",
+                "Managed FFmpeg installation failed.",
+                level="error",
+                detail=str(exc),
+                user_id=request.state.user.id,
+            )
+            return redirect("/settings/integrations", str(exc))
+
+        record_event(
+            "settings",
+            "Managed FFmpeg installed.",
+            context={"path": str(installed)},
+            user_id=request.state.user.id,
+        )
+        return redirect(
+            "/settings/integrations",
+            "FFmpeg was downloaded, verified, and installed for InfoMancer.",
+        )
+
+    @librarian_post("/settings/integrations/ffmpeg/remove")
+    def remove_managed_ffmpeg(request: Request):
+        try:
+            ffmpeg_components.remove()
+        except ManagedFfmpegError as exc:
+            record_event(
+                "settings",
+                "Managed FFmpeg removal failed.",
+                level="error",
+                detail=str(exc),
+                user_id=request.state.user.id,
+            )
+            return redirect("/settings/integrations", str(exc))
+
+        record_event(
+            "settings",
+            "Managed FFmpeg removed.",
+            user_id=request.state.user.id,
+        )
+        return redirect(
+            "/settings/integrations",
+            "InfoMancer's managed FFmpeg copy was removed.",
+        )
+
+    @librarian_post("/settings/integrations/speech/runtime/install")
+    def install_managed_speech_runtime(request: Request):
+        try:
+            installed, identity = speech_runtime_component.install()
+        except ManagedSpeechComponentError as exc:
+            record_event(
+                "settings",
+                "Managed whisper.cpp installation failed.",
+                level="error",
+                detail=str(exc),
+                user_id=request.state.user.id,
+            )
+            return redirect("/settings/integrations", str(exc))
+
+        record_event(
+            "settings",
+            "Managed whisper.cpp installed.",
+            context={
+                "path": str(installed),
+                "version": identity.version,
+                "sha256": identity.sha256,
+            },
+            user_id=request.state.user.id,
+        )
+        return redirect(
+            "/settings/integrations",
+            "whisper.cpp was downloaded, verified, and installed for InfoMancer.",
+        )
+
+    @librarian_post("/settings/integrations/speech/runtime/remove")
+    def remove_managed_speech_runtime(request: Request):
+        try:
+            speech_runtime_component.remove()
+        except ManagedSpeechComponentError as exc:
+            record_event(
+                "settings",
+                "Managed whisper.cpp removal failed.",
+                level="error",
+                detail=str(exc),
+                user_id=request.state.user.id,
+            )
+            return redirect("/settings/integrations", str(exc))
+
+        record_event(
+            "settings",
+            "Managed whisper.cpp removed.",
+            user_id=request.state.user.id,
+        )
+        return redirect(
+            "/settings/integrations",
+            "InfoMancer's managed whisper.cpp runtime was removed.",
+        )
+
+    def managed_speech_model(model_key: str):
+        key = str(model_key or "").strip()
+        component = speech_model_components.get(key)
+        if component is None:
+            raise ManagedSpeechComponentError(
+                "Unknown managed Whisper model."
+            )
+        return key, component
+
+    @librarian_post(
+        "/settings/integrations/speech/models/{model_key}/install"
+    )
+    def install_managed_speech_model(request: Request, model_key: str):
+        try:
+            key, component = managed_speech_model(model_key)
+            installed, identity = component.install()
+        except ManagedSpeechComponentError as exc:
+            record_event(
+                "settings",
+                "Managed Whisper model installation failed.",
+                level="error",
+                detail=str(exc),
+                user_id=request.state.user.id,
+            )
+            return redirect("/settings/integrations", str(exc))
+
+        record_event(
+            "settings",
+            "Managed Whisper model installed.",
+            context={
+                "model_key": key,
+                "path": str(installed),
+                "sha256": identity.sha256,
+            },
+            user_id=request.state.user.id,
+        )
+        return redirect(
+            "/settings/integrations",
+            f"Whisper model {key} was downloaded, verified, and installed.",
+        )
+
+    @librarian_post(
+        "/settings/integrations/speech/models/{model_key}/remove"
+    )
+    def remove_managed_speech_model(request: Request, model_key: str):
+        try:
+            key, component = managed_speech_model(model_key)
+            component.remove()
+        except ManagedSpeechComponentError as exc:
+            record_event(
+                "settings",
+                "Managed Whisper model removal failed.",
+                level="error",
+                detail=str(exc),
+                user_id=request.state.user.id,
+            )
+            return redirect("/settings/integrations", str(exc))
+
+        record_event(
+            "settings",
+            "Managed Whisper model removed.",
+            context={"model_key": key},
+            user_id=request.state.user.id,
+        )
+        return redirect(
+            "/settings/integrations",
+            f"InfoMancer's managed Whisper model {key} was removed.",
+        )
 
     @librarian_post("/settings/integrations/{source_key}")
     def save_external_source(
@@ -57,21 +232,36 @@ def build_router(ctx: RouteContext):
                 raise ExternalSourceConfigError(
                     "Choose either a replacement token or Remove saved token, not both."
                 )
-            normalized_url = normalize_server_url(server_url)
-            allow_insecure = bool(allow_insecure_http) if key == "jellyfin" else False
+            allow_insecure = (
+                str(allow_insecure_http or "").strip() == "1"
+                if key in {"plex", "jellyfin"}
+                else False
+            )
+            source_config = dict(previous.config)
+            if key in {"plex", "jellyfin"}:
+                source_config["allow_insecure_http"] = allow_insecure
+
+            validated = external_source_config.validate_source_settings(
+                key,
+                enabled=bool(enabled),
+                server_url=server_url,
+                metadata_root=metadata_root,
+                config=source_config,
+            )
+            normalized_url = validated.server_url
+            validated_metadata_root = validated.metadata_root
+            source_config = validated.config
+
             if (
-                key == "jellyfin"
+                key in {"plex", "jellyfin"}
                 and normalized_url.startswith("http://")
                 and bool(enabled)
                 and not allow_insecure
             ):
                 raise ExternalSourceConfigError(
-                    "Jellyfin credentials will not be sent over plain HTTP. "
+                    f"{key.title()} credentials will not be sent over plain HTTP. "
                     "Use HTTPS or explicitly allow insecure HTTP for this integration."
                 )
-            source_config = dict(previous.config)
-            if key == "jellyfin":
-                source_config["allow_insecure_http"] = allow_insecure
             endpoint_changed = normalized_url != previous.server_url
             has_saved_token = bool(current_secrets.get(secret_key, ""))
             saved_token_endpoint = current_secrets.get(endpoint_key, "")
@@ -123,7 +313,7 @@ def build_router(ctx: RouteContext):
                 key,
                 enabled=bool(enabled),
                 server_url=normalized_url,
-                metadata_root=metadata_root if key == "plex" else "",
+                metadata_root=validated_metadata_root,
                 config=source_config,
                 credential_generation=credential_generation,
             )
@@ -322,6 +512,12 @@ def build_router(ctx: RouteContext):
         )
 
     return router, {
+        "install_managed_ffmpeg": install_managed_ffmpeg,
+        "remove_managed_ffmpeg": remove_managed_ffmpeg,
+        "install_managed_speech_runtime": install_managed_speech_runtime,
+        "remove_managed_speech_runtime": remove_managed_speech_runtime,
+        "install_managed_speech_model": install_managed_speech_model,
+        "remove_managed_speech_model": remove_managed_speech_model,
         "save_external_source": save_external_source,
         "test_source_connection": test_source_connection,
         "add_source_mapping": add_source_mapping,

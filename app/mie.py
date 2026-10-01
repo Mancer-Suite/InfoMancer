@@ -4,7 +4,7 @@ import json
 import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 from .db import Database
 from .duplicates import DuplicateService
@@ -22,6 +22,10 @@ DEFAULT_CALIBRATION = {
 }
 FEEDBACK_REASONS = {"expected", "incorrect", "resolved_elsewhere", "other"}
 FEEDBACK_SCOPES = {"finding", "title", "source"}
+EPISODE_IDENTITY_RULES = {
+    "episode-identity-review",
+    "episode-identity-deep-review",
+}
 
 
 def _utc_now() -> str:
@@ -92,10 +96,19 @@ def _identity_evidence(title: dict[str, Any], files: list[dict[str, Any]]) -> di
 class MediaIntelligenceEngine:
     """Explainable, read-only analysis over facts already stored in the catalog."""
 
-    def __init__(self, database: Database):
+    def __init__(
+        self,
+        database: Database,
+        *,
+        external_registry_factory: Callable[[], Any] | None = None,
+    ):
         self.database = database
         self.duplicates = DuplicateService(database)
-        self.identity_decisions = MediaIdentityDecisionService(database)
+        self.external_registry_factory = external_registry_factory
+        self.identity_decisions = MediaIdentityDecisionService(
+            database,
+            external_registry_factory=external_registry_factory,
+        )
 
     def analyze(self) -> int:
         analyzed_at = _utc_now()
@@ -920,6 +933,7 @@ class MediaIntelligenceEngine:
         return [dict(row) for row in rows]
 
     def delete_feedback(self, feedback_id: int) -> bool:
+        reconcile_identity = False
         with self.database.connect() as conn:
             feedback = conn.execute(
                 "SELECT finding_fingerprint FROM mie_feedback WHERE id=? AND active=1",
@@ -927,16 +941,44 @@ class MediaIntelligenceEngine:
             ).fetchone()
             if not feedback:
                 return False
-            cursor = conn.execute(
-                "UPDATE mie_feedback SET active=0 WHERE id=? AND active=1", (feedback_id,)
-            )
-            conn.execute(
-                """UPDATE mie_findings
-                   SET status='active',dismissed_at=NULL,dismissed_by=NULL
+            finding = conn.execute(
+                """SELECT id,rule_key
+                   FROM mie_findings
                    WHERE fingerprint=?""",
                 (feedback["finding_fingerprint"],),
+            ).fetchone()
+            cursor = conn.execute(
+                "UPDATE mie_feedback SET active=0 WHERE id=? AND active=1",
+                (feedback_id,),
             )
-        return bool(cursor.rowcount)
+            reconcile_identity = bool(
+                finding
+                and str(finding["rule_key"] or "")
+                in EPISODE_IDENTITY_RULES
+            )
+            if reconcile_identity:
+                # Removing feedback does not prove that this historical sealed
+                # decision is still the current effective Episode Identity
+                # result. Keep it historical until MIE independently emits the
+                # same fingerprint again.
+                conn.execute(
+                    """UPDATE mie_findings
+                       SET status='resolved',dismissed_at=NULL,dismissed_by=NULL,
+                           resolved_at=CURRENT_TIMESTAMP
+                       WHERE id=?""",
+                    (int(finding["id"]),),
+                )
+            else:
+                conn.execute(
+                    """UPDATE mie_findings
+                       SET status='active',dismissed_at=NULL,dismissed_by=NULL
+                       WHERE fingerprint=?""",
+                    (feedback["finding_fingerprint"],),
+                )
+        deleted = bool(cursor.rowcount)
+        if deleted and reconcile_identity:
+            self.analyze()
+        return deleted
 
     @staticmethod
     def _normalize_quality_profile(
@@ -1241,6 +1283,7 @@ class MediaIntelligenceEngine:
                 "metadata-identifiers-missing": "Review provider match",
                 "media-identity-unreviewed": "Review editions and versions",
                 "episode-identity-review": "Review episode identity",
+                "episode-identity-deep-review": "Review Deep episode analysis",
             }.get(finding["rule_key"], "Review affected media")
             findings.append(finding)
         return findings
@@ -1258,7 +1301,7 @@ class MediaIntelligenceEngine:
             "duplicate-candidates", "duplicate-storage-recovery",
         }:
             return "/duplicates"
-        if finding["rule_key"] == "episode-identity-review":
+        if finding["rule_key"] in EPISODE_IDENTITY_RULES:
             scan_id = (finding.get("evidence") or {}).get("scan_id")
             if scan_id:
                 return f"/episode-identity/scans/{int(scan_id)}"
@@ -1291,7 +1334,7 @@ class MediaIntelligenceEngine:
             ).fetchone()
             if not finding:
                 return False
-            if finding["rule_key"] == "episode-identity-review":
+            if finding["rule_key"] in EPISODE_IDENTITY_RULES:
                 # Episode Identity feedback is bound to one evidence snapshot.
                 # Never allow a UI or direct POST to suppress future identity
                 # warnings for an entire title or source.
@@ -1321,21 +1364,45 @@ class MediaIntelligenceEngine:
         return bool(cursor.rowcount)
 
     def restore(self, finding_id: int) -> bool:
+        reconcile_identity = False
         with self.database.connect() as conn:
             finding = conn.execute(
-                "SELECT fingerprint FROM mie_findings WHERE id=? AND status='dismissed'",
+                """SELECT fingerprint,rule_key
+                   FROM mie_findings
+                   WHERE id=? AND status='dismissed'""",
                 (finding_id,),
             ).fetchone()
             if not finding:
                 return False
             conn.execute(
-                "UPDATE mie_feedback SET active=0 WHERE finding_fingerprint=? AND active=1",
+                """UPDATE mie_feedback
+                   SET active=0
+                   WHERE finding_fingerprint=? AND active=1""",
                 (finding["fingerprint"],),
             )
-            cursor = conn.execute(
-                """UPDATE mie_findings
-                   SET status='active',dismissed_at=NULL,dismissed_by=NULL
-                   WHERE id=? AND status='dismissed'""",
-                (finding_id,),
+            reconcile_identity = (
+                str(finding["rule_key"] or "") in EPISODE_IDENTITY_RULES
             )
-        return bool(cursor.rowcount)
+            if reconcile_identity:
+                # Removing feedback does not prove that the sealed decision this
+                # historical finding described is still current. Clear the
+                # dismissal but keep the old record resolved until a fresh MIE
+                # reconciliation independently produces the same fingerprint.
+                cursor = conn.execute(
+                    """UPDATE mie_findings
+                       SET status='resolved',dismissed_at=NULL,dismissed_by=NULL,
+                           resolved_at=CURRENT_TIMESTAMP
+                       WHERE id=? AND status='dismissed'""",
+                    (finding_id,),
+                )
+            else:
+                cursor = conn.execute(
+                    """UPDATE mie_findings
+                       SET status='active',dismissed_at=NULL,dismissed_by=NULL
+                       WHERE id=? AND status='dismissed'""",
+                    (finding_id,),
+                )
+        restored = bool(cursor.rowcount)
+        if restored and reconcile_identity:
+            self.analyze()
+        return restored
