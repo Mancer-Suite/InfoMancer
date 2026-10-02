@@ -1,0 +1,9 @@
+{
+  "request_id": "deep-post-astra-20260930",
+  "target_ref": "6c2893f7fe63bb241ad9e66f74a004997eb96a14",
+  "base_ref": "f14e9178e5b1bc1ef7c1e7a5cc05a5101e2a348b",
+  "review_profile": "defensive-evidence",
+  "model": "qwen3.5:9b",
+  "critic_model": "auto",
+  "notes": "InfoMancer Night Watch bootstrap request: review the post-qualification Deep changes after the previously qualified exact head."
+}

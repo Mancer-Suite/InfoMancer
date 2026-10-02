@@ -1,0 +1,95 @@
+name: InfoMancer Night Watch
+
+on:
+  push:
+    branches:
+      - night-watch
+    paths:
+      - .nightwatch/request.json
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Branch, tag, or exact SHA to review
+        required: true
+        default: testing/0.9-alpha
+      base_ref:
+        description: Base branch, tag, or SHA
+        required: true
+        default: testing/0.9-alpha
+      model:
+        description: Primary Ollama model
+        required: true
+        default: qwen3.5:9b
+      critic_model:
+        description: Critic model or auto
+        required: true
+        default: auto
+
+permissions:
+  contents: read
+
+concurrency:
+  group: night-watch-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  review:
+    name: Night Watch - Windows AI Review
+    runs-on: [self-hosted, Windows, X64, infomancer-ci]
+    timeout-minutes: 180
+
+    steps:
+      - name: Check out Night Watch controls
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Load review request
+        id: request
+        shell: powershell
+        run: |
+          if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            $request = [ordered]@{
+              request_id = 'manual-${{ github.run_id }}'
+              target_ref = '${{ inputs.target_ref }}'
+              base_ref = '${{ inputs.base_ref }}'
+              review_profile = 'defensive-evidence'
+              model = '${{ inputs.model }}'
+              critic_model = '${{ inputs.critic_model }}'
+              notes = 'Manual InfoMancer Night Watch dispatch'
+            }
+          } else {
+            $request = Get-Content -Raw '.nightwatch/request.json' | ConvertFrom-Json
+          }
+
+          $request | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 "$env:RUNNER_TEMP\night-watch-request.json"
+          Copy-Item '.nightwatch/night-watch.ps1' "$env:RUNNER_TEMP\night-watch.ps1" -Force
+
+          "target_ref=$($request.target_ref)" | Add-Content $env:GITHUB_OUTPUT
+          "base_ref=$($request.base_ref)" | Add-Content $env:GITHUB_OUTPUT
+
+      - name: Check out exact review target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ steps.request.outputs.target_ref }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: false
+
+      - name: Run InfoMancer Night Watch
+        shell: powershell
+        run: |
+          & "$env:RUNNER_TEMP\night-watch.ps1" `
+            -RequestPath "$env:RUNNER_TEMP\night-watch-request.json" `
+            -OutputDir "$env:RUNNER_TEMP\night-watch-output"
+
+      - name: Upload Night Watch report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: night-watch-${{ github.repository_id }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/night-watch-output
+          if-no-files-found: warn
+          retention-days: 14
