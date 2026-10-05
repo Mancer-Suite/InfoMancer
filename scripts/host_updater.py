@@ -77,6 +77,22 @@ def trusted_signers_from_config(
     return {normalize_fingerprint(value) for value in values}
 
 
+def annotated_tag_name(tag_object: str) -> str:
+    """Return the single embedded tag name from an annotated tag header."""
+    names: list[str] = []
+    for line in tag_object.splitlines():
+        if not line:
+            break
+        if line.startswith("tag "):
+            names.append(line[4:])
+    if len(names) != 1 or not names[0]:
+        raise UpdateError(
+            "The requested release tag object does not contain exactly one "
+            "embedded tag name."
+        )
+    return names[0]
+
+
 def _verify_tag_signature(
     repository: Path, tag_ref: str, trusted_signers: set[str],
 ) -> tuple[str, str]:
@@ -168,9 +184,16 @@ def verify_release_tag(
             "The requested release uses a lightweight tag. Automatic updates "
             "require an annotated, GPG-signed tag."
         )
+    tag_object = run(["git", "cat-file", "-p", tag_ref], repository)
     trusted_fingerprint, signing_fingerprint = _verify_tag_signature(
         repository, tag_ref, trusted_signers,
     )
+    embedded_tag = annotated_tag_name(tag_object)
+    if embedded_tag != tag:
+        raise UpdateError(
+            "The requested release tag ref does not match the signed tag "
+            f"object name: requested {tag!r}, signed object names {embedded_tag!r}."
+        )
     target_commit = run(
         ["git", "rev-parse", "--verify", f"{tag_ref}^{{commit}}"], repository,
     )
