@@ -33,7 +33,7 @@ gh auth login
 gh repo create infomancer --private --source=. --remote=origin --push
 ```
 
-## Create an alpha package
+## Create a server release
 
 The release builder uses an explicit allowlist. It does not include local
 environment files, databases, media, `compose.atlas.yaml`, Cloudflare
@@ -49,28 +49,36 @@ On macOS or Linux:
 python3 scripts/build_release.py
 ```
 
-Upload both files created in `dist/` to the GitHub release:
+Server releases must use an existing annotated GPG-signed Git tag. Do not let
+`gh release create` create a tag implicitly. The host updater verifies the tag
+signature and an explicit full-fingerprint allowlist before it resolves or
+checks out the release commit.
 
-- `InfoMancer-VERSION.zip`
-- `SHA256SUMS.txt`
-
-After the initial commit and push, create a private prerelease with GitHub CLI:
+Create and verify the release tag locally:
 
 ```powershell
-gh release create v0.4.0-alpha.1 `
-  .\dist\InfoMancer-0.4.0-alpha.1.zip `
-  .\dist\SHA256SUMS.txt `
-  --prerelease `
-  --title "InfoMancer 0.4.0 Alpha 1" `
-  --generate-notes
+git switch main
+git pull --ff-only
+git tag -s v0.9.0-beta.1 -m "InfoMancer v0.9.0-beta.1"
+git verify-tag --raw v0.9.0-beta.1
+git push origin refs/tags/v0.9.0-beta.1
 ```
 
-Only friends who have access to the private repository can open or download
-its private releases.
+Then run the **Publish Signed Server Release** workflow and supply the exact
+tag. The workflow requires:
 
-Without GitHub CLI, create an empty private repository on GitHub (do not add a
-README, license, or `.gitignore` there), then use the `git remote add` and
-`git push` commands GitHub displays.
+- repository variable `INFOMANCER_UPDATE_SIGNERS` containing one or more full
+  40-character trusted GPG fingerprints; and
+- Actions secret `INFOMANCER_RELEASE_GPG_PUBLIC_KEYS` containing the matching
+  ASCII-armored public key or keys.
+
+The workflow rejects lightweight tags, invalid signatures, untrusted signers,
+and release commits that are not reachable from `main`. It runs the server test
+suite, builds `InfoMancer-VERSION.zip` plus `SHA256SUMS.txt`, and publishes the
+GitHub release only after the signed tag is verified.
+
+See `docs/UPDATES.md` for the updater-side trust configuration. Desktop Tauri
+updater signing is separate from server Git tag signing.
 
 ## Later options
 

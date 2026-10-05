@@ -7,6 +7,7 @@ Requires=docker.service
 Type=simple
 User=infomancer
 WorkingDirectory=/opt/infomancer
+EnvironmentFile=/etc/infomancer/updater.env
 ExecStart=/usr/bin/python3 /opt/infomancer/scripts/host_updater.py --watch --compose-file compose.yaml --compose-file compose.media.yaml
 Restart=on-failure
 RestartSec=5
