@@ -15,6 +15,20 @@ OTHER = "B" * 40
 SUBKEY = "C" * 40
 
 
+def tag_object(name: str) -> str:
+    return (
+        "object " + "1" * 40 + "\n"
+        "type commit\n"
+        f"tag {name}\n"
+        "tagger InfoMancer Release <release@example.invalid> 0 +0000\n"
+        "\n"
+        "release\n"
+        "-----BEGIN PGP SIGNATURE-----\n"
+        "test\n"
+        "-----END PGP SIGNATURE-----\n"
+    )
+
+
 class HostUpdaterTrustTests(unittest.TestCase):
     def test_normalize_fingerprint_accepts_full_colon_separated_value(self):
         value = ":".join(["aa"] * 20)
@@ -29,6 +43,10 @@ class HostUpdaterTrustTests(unittest.TestCase):
             f"{TRUSTED.lower()},{OTHER}", [SUBKEY.lower()]
         )
         self.assertEqual(signers, {TRUSTED, OTHER, SUBKEY})
+
+    def test_annotated_tag_name_reads_only_header(self):
+        value = tag_object("v1.2.3") + "\ntag misleading-message-text\n"
+        self.assertEqual(host_updater.annotated_tag_name(value), "v1.2.3")
 
     @mock.patch("scripts.host_updater.run")
     def test_no_trusted_signer_fails_before_fetch(self, run):
@@ -55,7 +73,7 @@ class HostUpdaterTrustTests(unittest.TestCase):
     @mock.patch("scripts.host_updater.subprocess.run")
     @mock.patch("scripts.host_updater.run")
     def test_valid_signature_from_wrong_key_is_rejected(self, run, subprocess_run):
-        run.side_effect = ["", "tag"]
+        run.side_effect = ["", "tag", tag_object("v1.2.3")]
         subprocess_run.return_value = subprocess.CompletedProcess(
             ["git"], 0, "", f"[GNUPG:] VALIDSIG {OTHER} 2026-10-05 0 4 0 1 10 00 {OTHER}\n"
         )
@@ -71,7 +89,7 @@ class HostUpdaterTrustTests(unittest.TestCase):
     @mock.patch("scripts.host_updater.subprocess.run")
     @mock.patch("scripts.host_updater.run")
     def test_trusted_signature_is_accepted(self, run, subprocess_run):
-        run.side_effect = ["", "tag", "0123456789abcdef0123456789abcdef01234567"]
+        run.side_effect = ["", "tag", tag_object("v1.2.3"), "0123456789abcdef0123456789abcdef01234567"]
         subprocess_run.return_value = subprocess.CompletedProcess(
             ["git"], 0, "", f"[GNUPG:] VALIDSIG {TRUSTED} 2026-10-05 0 4 0 1 10 00 {TRUSTED}\n"
         )
@@ -87,7 +105,7 @@ class HostUpdaterTrustTests(unittest.TestCase):
     def test_primary_key_allowlist_accepts_signature_from_signing_subkey(
         self, run, subprocess_run
     ):
-        run.side_effect = ["", "tag", "0123456789abcdef0123456789abcdef01234567"]
+        run.side_effect = ["", "tag", tag_object("v1.2.3"), "0123456789abcdef0123456789abcdef01234567"]
         subprocess_run.return_value = subprocess.CompletedProcess(
             ["git"], 0, "", f"[GNUPG:] VALIDSIG {SUBKEY} 2026-10-05 0 4 0 1 10 00 {TRUSTED}\n"
         )
@@ -111,6 +129,9 @@ class HostUpdaterTrustTests(unittest.TestCase):
             if command[:3] == ["git", "cat-file", "-t"]:
                 events.append("type")
                 return "tag"
+            if command[:3] == ["git", "cat-file", "-p"]:
+                events.append("tag-object")
+                return tag_object("v1.2.3")
             if command[:3] == ["git", "rev-parse", "--verify"]:
                 events.append("resolve")
                 return "0123456789abcdef0123456789abcdef01234567"
@@ -126,6 +147,27 @@ class HostUpdaterTrustTests(unittest.TestCase):
         subprocess_run.side_effect = subprocess_side_effect
         host_updater.verify_release_tag(Path("/repo"), "v1.2.3", {TRUSTED})
         self.assertLess(events.index("verify"), events.index("resolve"))
+
+    @mock.patch("scripts.host_updater.subprocess.run")
+    @mock.patch("scripts.host_updater.run")
+    def test_signed_tag_alias_is_rejected_before_commit_resolution(
+        self, run, subprocess_run
+    ):
+        run.side_effect = ["", "tag", tag_object("v1.2.2")]
+        subprocess_run.return_value = subprocess.CompletedProcess(
+            ["git"], 0, "",
+            f"[GNUPG:] VALIDSIG {TRUSTED} 2026-10-05 0 4 0 1 10 00 {TRUSTED}\n",
+        )
+
+        with self.assertRaisesRegex(host_updater.UpdateError, "does not match"):
+            host_updater.verify_release_tag(
+                Path("/repo"), "v1.2.3", {TRUSTED}
+            )
+
+        self.assertNotIn(
+            ["git", "rev-parse", "--verify", "refs/tags/v1.2.3^{commit}"],
+            [call.args[0] for call in run.call_args_list],
+        )
 
     @mock.patch("scripts.host_updater.verify_release_tag")
     @mock.patch("scripts.host_updater.run")
