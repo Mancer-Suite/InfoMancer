@@ -1638,11 +1638,17 @@ def change_account_password(
         new_session_token, new_session = rotation
         request.state.user = new_session.user
         request.state.auth_session = new_session
-        record_security_event(
-            "Account password was changed; prior sessions were revoked and the current browser received a fresh session.",
-            context={"operation": "password_changed", "session_rotated": True},
-            user_id=user_id,
-        )
+        # Credential/session rotation has already committed at this point.
+        # Audit logging is intentionally best-effort so a secondary logging
+        # failure can never prevent delivery of the newly persisted session.
+        try:
+            record_security_event(
+                "Account password was changed; prior sessions were revoked and the current browser received a fresh session.",
+                context={"operation": "password_changed", "session_rotated": True},
+                user_id=user_id,
+            )
+        except Exception:
+            pass
     except AuthenticationError as exc:
         return templates.TemplateResponse(request, "account_security.html", {
             "message": "", "error": str(exc),
