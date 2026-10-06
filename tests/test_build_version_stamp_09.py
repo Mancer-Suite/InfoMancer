@@ -23,9 +23,10 @@ class BuildVersionStamp09Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
             for relative in (
-                "app/main.py",
+                "VERSION",
                 "desktop/sidecar.py",
                 "desktop/src-tauri/Cargo.toml",
+                "desktop/src-tauri/Cargo.lock",
                 "desktop/src-tauri/tauri.conf.json",
                 "desktop/package.json",
                 "desktop/package-lock.json",
@@ -37,16 +38,21 @@ class BuildVersionStamp09Tests(unittest.TestCase):
             module.ROOT = temporary
             module.stamp("0.9.0-dev.2375")
 
-            main = (temporary / "app/main.py").read_text(encoding="utf-8")
+            canonical = (temporary / "VERSION").read_text(encoding="utf-8").strip()
             sidecar = (temporary / "desktop/sidecar.py").read_text(encoding="utf-8")
             cargo = (temporary / "desktop/src-tauri/Cargo.toml").read_text(encoding="utf-8")
+            cargo_lock = (temporary / "desktop/src-tauri/Cargo.lock").read_text(encoding="utf-8")
             tauri = json.loads((temporary / "desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
             package = json.loads((temporary / "desktop/package.json").read_text(encoding="utf-8"))
             lock = json.loads((temporary / "desktop/package-lock.json").read_text(encoding="utf-8"))
 
-            self.assertIn('APP_VERSION = "0.9.0-dev.2375"', main)
+            self.assertEqual(canonical, "0.9.0-dev.2375")
             self.assertIn('DESKTOP_VERSION = "0.9.0-dev.2375"', sidecar)
             self.assertIn('version = "0.9.0-dev.2375"', cargo)
+            self.assertIn(
+                'name = "infomancer-desktop"\nversion = "0.9.0-dev.2375"',
+                cargo_lock,
+            )
             self.assertEqual(tauri["version"], "0.9.0-dev.2375")
             self.assertEqual(package["version"], "0.9.0-dev.2375")
             self.assertEqual(lock["version"], "0.9.0-dev.2375")

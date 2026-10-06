@@ -1,6 +1,6 @@
 # Install InfoMancer
 
-InfoMancer 0.8.1-beta.2 has two simple installation choices:
+InfoMancer 0.9.0-alpha.1 has two simple installation choices:
 
 | What you want | Install |
 | --- | --- |
@@ -27,7 +27,7 @@ You do **not** need Python, Node, Rust, a separate database server, or Cloudflar
 
 Download and extract:
 
-`InfoMancer-Server-0.8.1-beta.2.zip`
+`InfoMancer-Server-0.9.0-alpha.1.zip`
 
 Keep the extracted folder somewhere permanent. It will also hold InfoMancer's local configuration and catalog data.
 
@@ -156,19 +156,19 @@ Download the package that matches the computer:
 
 | Platform | File |
 | --- | --- |
-| Windows 10/11 x64 | `InfoMancer-0.8.1-beta.2-Windows-x64-Setup.exe` |
-| Mac with Apple Silicon | `InfoMancer-0.8.1-beta.2-macOS-Apple-Silicon.dmg` |
-| Mac with Intel processor | `InfoMancer-0.8.1-beta.2-macOS-Intel.dmg` |
-| Debian / Ubuntu / Linux Mint x86-64 | `InfoMancer-0.8.1-beta.2-Linux-x86_64.deb` |
-| Other Linux x86-64 desktops | `InfoMancer-0.8.1-beta.2-Linux-x86_64.AppImage` |
+| Windows 10/11 x64 | `InfoMancer-0.9.0-alpha.1-Windows-x64-Setup.exe` |
+| Mac with Apple Silicon | `InfoMancer-0.9.0-alpha.1-macOS-Apple-Silicon.dmg` |
+| Mac with Intel processor | `InfoMancer-0.9.0-alpha.1-macOS-Intel.dmg` |
+| Debian / Ubuntu / Linux Mint x86-64 | `InfoMancer-0.9.0-alpha.1-Linux-x86_64.deb` |
+| Other Linux x86-64 desktops | `InfoMancer-0.9.0-alpha.1-Linux-x86_64.AppImage` |
 
 ## Windows Desktop
 
-1. Run `InfoMancer-0.8.1-beta.2-Windows-x64-Setup.exe`.
+1. Run `InfoMancer-0.9.0-alpha.1-Windows-x64-Setup.exe`.
 2. Launch **InfoMancer**.
 3. Choose **Run on this computer** or **Connect to a server**.
 
-Beta 2 is not yet Authenticode-signed, so Windows SmartScreen may show an unknown-publisher warning.
+Alpha 1 is not yet Authenticode-signed, so Windows SmartScreen may show an unknown-publisher warning.
 
 ## macOS Desktop
 
@@ -177,21 +177,21 @@ Beta 2 is not yet Authenticode-signed, so Windows SmartScreen may show an unknow
 3. Launch InfoMancer.
 4. Choose **Run on this computer** or **Connect to a server**.
 
-If macOS blocks the first launch, open **System Settings > Privacy & Security** and choose **Open Anyway** for InfoMancer. Beta 2 is not yet Apple-notarized.
+If macOS blocks the first launch, open **System Settings > Privacy & Security** and choose **Open Anyway** for InfoMancer. Alpha 1 is not yet Apple-notarized.
 
 ## Linux Desktop
 
 For Debian, Ubuntu, or Linux Mint:
 
 ```bash
-sudo apt install ./InfoMancer-0.8.1-beta.2-Linux-x86_64.deb
+sudo apt install ./InfoMancer-0.9.0-alpha.1-Linux-x86_64.deb
 ```
 
 For the AppImage:
 
 ```bash
-chmod +x InfoMancer-0.8.1-beta.2-Linux-x86_64.AppImage
-./InfoMancer-0.8.1-beta.2-Linux-x86_64.AppImage
+chmod +x InfoMancer-0.9.0-alpha.1-Linux-x86_64.AppImage
+./InfoMancer-0.9.0-alpha.1-Linux-x86_64.AppImage
 ```
 
 Then choose **Run on this computer** or **Connect to a server**.

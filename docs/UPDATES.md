@@ -2,7 +2,7 @@
 
 Updating InfoMancer should not require you to understand Git, signing keys, or Docker internals.
 
-Because 0.8.1 is still beta software, make a backup before updating a catalog you care about.
+Because 0.9.0-alpha.1 is alpha software, make a backup before updating a catalog you care about.
 
 # InfoMancer Desktop
 
