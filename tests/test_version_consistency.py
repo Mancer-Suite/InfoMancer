@@ -80,6 +80,9 @@ class VersionConsistencyTests(unittest.TestCase):
         self.assertIn(f"InfoMancer-Server-{VERSION}.zip", installation)
         self.assertIn(f"InfoMancer-{VERSION}-Windows-x64-Setup.exe", readme)
         self.assertIn(f"InfoMancer-{VERSION}-Windows-x64-Setup.exe", installation)
+        base = (ROOT / "app" / "templates" / "base.html").read_text(encoding="utf-8")
+        self.assertIn("{{ app_version }}", base)
+        self.assertNotIn("0.8 α", base)
 
     def test_release_workflows_use_canonical_version_path(self):
         server = (ROOT / ".github" / "workflows" / "server-release.yml").read_text(
