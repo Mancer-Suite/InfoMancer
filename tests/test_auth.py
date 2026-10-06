@@ -192,6 +192,33 @@ class AuthServiceTests(unittest.TestCase):
         self.auth.revoke_session(session.id, user.id)
         self.assertIsNone(self.auth.session_from_token(raw))
 
+    def test_password_change_revokes_all_existing_sessions_before_rotation(self):
+        user = self.auth.create_user(
+            "rotate", "rotate@example.com", "Rotate",
+            "original long password", role="member",
+        )
+        first_raw, first = self.auth.create_session(user, self.request)
+        second_raw, second = self.auth.create_session(user, self.request)
+
+        self.auth.change_password(
+            user.id, "original long password", "replacement long password"
+        )
+
+        self.assertIsNone(self.auth.session_from_token(first_raw))
+        self.assertIsNone(self.auth.session_from_token(second_raw))
+        self.assertEqual(self.auth.list_sessions(user.id), [])
+        with self.assertRaises(AuthenticationError):
+            self.auth.authenticate_local(
+                "rotate", "original long password", "127.0.0.1"
+            )
+        refreshed = self.auth.authenticate_local(
+            "rotate", "replacement long password", "127.0.0.1"
+        )
+        fresh_raw, fresh = self.auth.create_session(refreshed, self.request)
+        self.assertNotIn(fresh_raw, {first_raw, second_raw})
+        self.assertNotIn(fresh.csrf_token, {first.csrf_token, second.csrf_token})
+        self.assertEqual(self.auth.session_from_token(fresh_raw).user.id, user.id)
+
     def test_home_preferences_survive_session_reload(self):
         user = self.auth.create_user(
             "homeprefs", "home@example.com", "Home Preferences",

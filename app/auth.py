@@ -863,6 +863,10 @@ class AuthService:
                    WHERE id=?""",
                 (password_hasher.hash(new_password), user_id),
             )
+            # Password rotation invalidates every bearer session, including the
+            # browser that submitted the change. The route may issue that browser
+            # a brand-new session only after this transaction commits.
+            conn.execute("DELETE FROM user_sessions WHERE user_id=?", (user_id,))
 
     def update_user_admin(
         self, user_id: int, display_name: str, email: str, role: str,
