@@ -44,11 +44,7 @@ def stamp(version: str) -> None:
     if not VERSION_PATTERN.fullmatch(version):
         raise ValueError("Build version must be a semantic version without a leading v.")
 
-    replace_once(
-        ROOT / "app" / "main.py",
-        r'^APP_VERSION = "[^"]+"$',
-        f'APP_VERSION = "{version}"',
-    )
+    (ROOT / "VERSION").write_text(version + "\n", encoding="utf-8")
     replace_once(
         ROOT / "desktop" / "sidecar.py",
         r'^DESKTOP_VERSION = "[^"]+"$',
@@ -56,8 +52,33 @@ def stamp(version: str) -> None:
     )
     replace_once(
         ROOT / "desktop" / "src-tauri" / "Cargo.toml",
-        r'^(version\s*=\s*)"[^"]+"$',
+        r'^(version\s*=\s*)"[^"]+"    stamp_json(ROOT / "desktop" / "src-tauri" / "tauri.conf.json", version)
+    stamp_json(ROOT / "desktop" / "package.json", version)
+    stamp_json(ROOT / "desktop" / "package-lock.json", version, lock_root=True)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Stamp InfoMancer packaging versions")
+    parser.add_argument("version")
+    args = parser.parse_args()
+    try:
+        stamp(args.version)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        print(f"Could not stamp build version: {exc}")
+        return 2
+    print(args.version)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+,
         rf'\1"{version}"',
+    )
+    replace_once(
+        ROOT / "desktop" / "src-tauri" / "Cargo.lock",
+        r'(name = "infomancer-desktop"\nversion = ")[^"]+(")',
+        rf'\g<1>{version}\g<2>',
     )
     stamp_json(ROOT / "desktop" / "src-tauri" / "tauri.conf.json", version)
     stamp_json(ROOT / "desktop" / "package.json", version)

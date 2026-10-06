@@ -1564,7 +1564,7 @@ dependencies = [
 
 [[package]]
 name = "infomancer-desktop"
-version = "0.8.1-beta.2"
+version = "0.9.0-alpha.1"
 dependencies = [
  "serde",
  "serde_json",

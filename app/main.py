@@ -31,6 +31,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .config import BASE_DIR, get_settings
+from .version import APP_VERSION
 from .access import LibrarianAccessRequired, require_librarian
 from .app_settings import AppSettingError, AppSettings
 from .bootstrap import BootstrapTokenManager
@@ -136,7 +137,6 @@ def _mie_external_registry():
         integration_secrets,
     )
 
-APP_VERSION = "0.8.1-beta.2"
 @asynccontextmanager
 async def _infomancer_lifespan(_app: FastAPI):
     background.start()

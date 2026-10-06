@@ -9,6 +9,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
+VERSION_FILE = ROOT / "VERSION"
+VERSION_PATTERN = re.compile(
+    r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
+)
 
 DIRECTORIES = (
     "app",
@@ -27,6 +31,7 @@ FILES = (
     "compose.sandbox.yaml",
     "compose.yaml",
     "Dockerfile",
+    "VERSION",
     "infomancer-lockup.svg",
     "README.md",
     "requirements.txt",
@@ -52,14 +57,12 @@ EXCLUDED_SUFFIXES = {
 
 
 def application_version() -> str:
-    source = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
-    match = re.search(r'^APP_VERSION\s*=\s*"([^"]+)"', source, re.MULTILINE)
-    if not match:
+    version = VERSION_FILE.read_text(encoding="utf-8").strip()
+    if not VERSION_PATTERN.fullmatch(version):
         raise RuntimeError(
-            "InfoMancer's version could not be read from app/main.py. "
-            "Set APP_VERSION before creating a release."
+            "InfoMancer's VERSION file does not contain a valid semantic version."
         )
-    return match.group(1)
+    return version
 
 
 def included_files() -> list[Path]:
@@ -118,7 +121,7 @@ def main() -> int:
     parser.add_argument(
         "--version",
         default=application_version(),
-        help="Release version; defaults to APP_VERSION from app/main.py.",
+        help="Release version; defaults to the canonical VERSION file.",
     )
     arguments = parser.parse_args()
     archive = build(arguments.version.strip())
