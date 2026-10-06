@@ -1,9 +1,15 @@
 import json
+import re
 from pathlib import Path
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = re.search(
+    r'^APP_VERSION\s*=\s*"([^"]+)"',
+    (ROOT / "app" / "version.py").read_text(encoding="utf-8"),
+    re.MULTILINE,
+).group(1)
 
 
 class ReleaseAssetNameContracts(unittest.TestCase):
@@ -56,8 +62,8 @@ class ReleaseAssetNameContracts(unittest.TestCase):
         # The existing broad staging glob intentionally picks up the newly named
         # Server archive without coupling the release workflow to one beta label.
         self.assertIn("cp dist/InfoMancer-*.zip release-assets/", workflow)
-        self.assertIn("InfoMancer-Server-0.8.1-beta.2.zip", installation)
-        self.assertIn("InfoMancer-Server-0.8.1-beta.2.zip", readme)
+        self.assertIn(f"InfoMancer-Server-{VERSION}.zip", installation)
+        self.assertIn(f"InfoMancer-Server-{VERSION}.zip", readme)
         self.assertNotIn("InfoMancer-0.8.1-beta.1", installation)
         self.assertNotIn("InfoMancer-0.8.1-beta.1", readme)
 

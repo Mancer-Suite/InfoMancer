@@ -8,10 +8,12 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class WorkspaceFoundationTests(unittest.TestCase):
-    def test_08_beta_version_and_workspace_assets_are_enabled(self):
+    def test_09_alpha_version_and_workspace_assets_are_enabled(self):
         main = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
+        version_module = (ROOT / "app" / "version.py").read_text(encoding="utf-8")
         base = (ROOT / "app" / "templates" / "base.html").read_text(encoding="utf-8")
-        self.assertRegex(main, r'APP_VERSION = "0\.8\.1-beta\.\d+"')
+        self.assertIn("from .version import APP_VERSION", main)
+        self.assertRegex(version_module, r'APP_VERSION = "0\.9\.0-alpha\.\d+"')
         self.assertIn("path='workspace.css'", base)
         self.assertIn("path='workspace.js'", base)
         self.assertIn("path='workspace-ui.js'", base)
@@ -34,7 +36,8 @@ class WorkspaceFoundationTests(unittest.TestCase):
         self.assertNotIn("cloneLink", core)
         self.assertNotIn("replaceChildren(primary)", core)
         self.assertIn("sidebar-collapsed .workspace-nav-section", styles)
-        self.assertIn("0.8 α", base)
+        self.assertIn('title="InfoMancer {{ app_version }}"' , base)
+        self.assertNotIn("0.8 α", base)
         self.assertIn('class="domain-current"', base)
         self.assertIn("request.url.path == '/library'", base)
         self.assertIn("sidebar-collapsed .workspace-nav-primary > a.domain-current", styles)

@@ -6,7 +6,7 @@
 <p align="center">InfoMancer helps you catalog, inspect, review, and safely organize Movie and TV libraries you already own.</p>
 
 <p align="center">
-  <img alt="Release 0.8.1 beta.2" src="https://img.shields.io/badge/release-0.8.1--beta.2-B7FF2A?style=flat-square&labelColor=11161d">
+  <img alt="Release 0.9.0-alpha.1" src="https://img.shields.io/badge/release-0.9.0--alpha.1-B7FF2A?style=flat-square&labelColor=11161d">
   <img alt="Windows, macOS, Linux, Server" src="https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux%20%7C%20Server-26313d?style=flat-square&labelColor=11161d">
 </p>
 
@@ -19,7 +19,7 @@
 
 InfoMancer works with the media files you already have. It does not require you to move your library into a special folder, and scanning does not change your files.
 
-> **0.8.1 is beta software.** Keep a backup of any catalog you care about while testing.
+> **0.9.0-alpha.1 is alpha software.** Keep a backup of any catalog you care about while testing.
 
 ## Start here
 
@@ -33,22 +33,22 @@ Pick the setup that matches what you want:
 
 **Desktop is not Server.** A Desktop install using **Run on this computer** stays local to that computer. Use InfoMancer Server when several devices need the same catalog.
 
-## Download 0.8.1-beta.2
+## Download 0.9.0-alpha.1
 
 | Platform / product | Download |
 | --- | --- |
-| Windows 10/11 x64 Desktop | `InfoMancer-0.8.1-beta.2-Windows-x64-Setup.exe` |
-| macOS Desktop, Apple Silicon | `InfoMancer-0.8.1-beta.2-macOS-Apple-Silicon.dmg` |
-| macOS Desktop, Intel | `InfoMancer-0.8.1-beta.2-macOS-Intel.dmg` |
-| Debian / Ubuntu / Linux Mint Desktop x86-64 | `InfoMancer-0.8.1-beta.2-Linux-x86_64.deb` |
-| Other Linux Desktop x86-64 | `InfoMancer-0.8.1-beta.2-Linux-x86_64.AppImage` |
-| **InfoMancer Server** | `InfoMancer-Server-0.8.1-beta.2.zip` |
+| Windows 10/11 x64 Desktop | `InfoMancer-0.9.0-alpha.1-Windows-x64-Setup.exe` |
+| macOS Desktop, Apple Silicon | `InfoMancer-0.9.0-alpha.1-macOS-Apple-Silicon.dmg` |
+| macOS Desktop, Intel | `InfoMancer-0.9.0-alpha.1-macOS-Intel.dmg` |
+| Debian / Ubuntu / Linux Mint Desktop x86-64 | `InfoMancer-0.9.0-alpha.1-Linux-x86_64.deb` |
+| Other Linux Desktop x86-64 | `InfoMancer-0.9.0-alpha.1-Linux-x86_64.AppImage` |
+| **InfoMancer Server** | `InfoMancer-Server-0.9.0-alpha.1.zip` |
 
 ## Installing InfoMancer Server is meant to be simple
 
 For a normal home Server install:
 
-1. Download and extract `InfoMancer-Server-0.8.1-beta.2.zip`.
+1. Download and extract `InfoMancer-Server-0.9.0-alpha.1.zip`.
 2. Run the setup helper for your operating system.
 3. Let the helper check Docker. InfoMancer Server requires Docker Engine **24.0+** and Docker Compose **2.20+**.
 4. Tell it where your Movies and TV Shows live.

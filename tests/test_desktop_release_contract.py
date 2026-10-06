@@ -1,9 +1,15 @@
 import json
+import re
 from pathlib import Path
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = re.search(
+    r'^APP_VERSION\s*=\s*"([^"]+)"',
+    (ROOT / "app" / "version.py").read_text(encoding="utf-8"),
+    re.MULTILINE,
+).group(1)
 
 
 class DesktopReleaseContractTests(unittest.TestCase):
@@ -78,12 +84,12 @@ class DesktopReleaseContractTests(unittest.TestCase):
     def test_installation_guide_documents_current_native_packages(self):
         guide = (ROOT / "docs" / "INSTALLATION.md").read_text(encoding="utf-8")
         for expected in (
-            "InfoMancer-0.8.1-beta.2-Windows-x64-Setup.exe",
-            "InfoMancer-0.8.1-beta.2-macOS-Apple-Silicon.dmg",
-            "InfoMancer-0.8.1-beta.2-macOS-Intel.dmg",
-            "InfoMancer-0.8.1-beta.2-Linux-x86_64.deb",
-            "InfoMancer-0.8.1-beta.2-Linux-x86_64.AppImage",
-            "InfoMancer-Server-0.8.1-beta.2.zip",
+            f"InfoMancer-{VERSION}-Windows-x64-Setup.exe",
+            f"InfoMancer-{VERSION}-macOS-Apple-Silicon.dmg",
+            f"InfoMancer-{VERSION}-macOS-Intel.dmg",
+            f"InfoMancer-{VERSION}-Linux-x86_64.deb",
+            f"InfoMancer-{VERSION}-Linux-x86_64.AppImage",
+            f"InfoMancer-Server-{VERSION}.zip",
             "Run on this computer",
             "Connect to a server",
         ):

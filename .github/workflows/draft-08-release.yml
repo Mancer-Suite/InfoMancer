@@ -53,26 +53,7 @@ jobs:
         shell: bash
         run: |
           export INFOMANCER_BUILD_VERSION="${GITHUB_REF_NAME#release/}"
-          python - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          version = os.environ['INFOMANCER_BUILD_VERSION']
-          path = Path('app/main.py')
-          text = path.read_text(encoding='utf-8')
-          updated, count = re.subn(
-              r'^APP_VERSION\s*=\s*"[^"]+"',
-              f'APP_VERSION = "{version}"',
-              text,
-              count=1,
-              flags=re.MULTILINE,
-          )
-          if count != 1:
-              raise SystemExit('Could not locate APP_VERSION for release stamping')
-          path.write_text(updated, encoding='utf-8')
-          print(f'Stamped InfoMancer application version {version}')
-          PY
+          python scripts/stamp_build_version.py "$INFOMANCER_BUILD_VERSION"
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -82,21 +63,7 @@ jobs:
 
       - name: Verify release versions agree
         shell: bash
-        run: |
-          python - <<'PY'
-          import json
-          import re
-          from pathlib import Path
-
-          main = Path('app/main.py').read_text(encoding='utf-8')
-          app_version = re.search(r'^APP_VERSION\s*=\s*"([^"]+)"', main, re.MULTILINE).group(1)
-          tauri_version = json.loads(Path('desktop/src-tauri/tauri.conf.json').read_text(encoding='utf-8'))['version']
-          package_version = json.loads(Path('desktop/package.json').read_text(encoding='utf-8'))['version']
-          versions = {app_version, tauri_version, package_version}
-          if len(versions) != 1:
-              raise SystemExit(f'Release version mismatch: app={app_version}, tauri={tauri_version}, package={package_version}')
-          print(f'Packaging InfoMancer {app_version}')
-          PY
+        run: python tests/test_version_consistency.py
 
       - name: Install Python dependencies
         run: python -m pip install -r requirements.txt
@@ -165,26 +132,7 @@ jobs:
         shell: bash
         run: |
           export INFOMANCER_BUILD_VERSION="${GITHUB_REF_NAME#release/}"
-          python - <<'PY'
-          import os
-          import re
-          from pathlib import Path
-
-          version = os.environ['INFOMANCER_BUILD_VERSION']
-          path = Path('app/main.py')
-          text = path.read_text(encoding='utf-8')
-          updated, count = re.subn(
-              r'^APP_VERSION\s*=\s*"[^"]+"',
-              f'APP_VERSION = "{version}"',
-              text,
-              count=1,
-              flags=re.MULTILINE,
-          )
-          if count != 1:
-              raise SystemExit('Could not locate APP_VERSION for release stamping')
-          path.write_text(updated, encoding='utf-8')
-          print(f'Stamped InfoMancer application version {version}')
-          PY
+          python scripts/stamp_build_version.py "$INFOMANCER_BUILD_VERSION"
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -646,13 +594,7 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == release/* ]]; then
             VERSION="${GITHUB_REF_NAME#release/}"
           else
-            VERSION="$(python - <<'PY'
-          import re
-          from pathlib import Path
-          text = Path('app/main.py').read_text(encoding='utf-8')
-          print(re.search(r'^APP_VERSION\s*=\s*"([^"]+)"', text, re.MULTILINE).group(1))
-          PY
-          )"
+            VERSION="$(python -c 'from scripts.build_release import application_version; print(application_version())')"
           fi
           TAG="v$VERSION"
           TITLE="InfoMancer $VERSION"

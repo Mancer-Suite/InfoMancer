@@ -9,6 +9,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "dist"
+VERSION_PATTERN = re.compile(
+    r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
+)
 
 DIRECTORIES = (
     "app",
@@ -52,12 +55,11 @@ EXCLUDED_SUFFIXES = {
 
 
 def application_version() -> str:
-    source = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
+    source = (ROOT / "app" / "version.py").read_text(encoding="utf-8")
     match = re.search(r'^APP_VERSION\s*=\s*"([^"]+)"', source, re.MULTILINE)
-    if not match:
+    if not match or not VERSION_PATTERN.fullmatch(match.group(1)):
         raise RuntimeError(
-            "InfoMancer's version could not be read from app/main.py. "
-            "Set APP_VERSION before creating a release."
+            "InfoMancer's canonical app/version.py does not contain a valid APP_VERSION."
         )
     return match.group(1)
 
@@ -118,7 +120,7 @@ def main() -> int:
     parser.add_argument(
         "--version",
         default=application_version(),
-        help="Release version; defaults to APP_VERSION from app/main.py.",
+        help="Release version; defaults to canonical app/version.py.",
     )
     arguments = parser.parse_args()
     archive = build(arguments.version.strip())

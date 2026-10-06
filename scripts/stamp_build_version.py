@@ -3,7 +3,8 @@
 
 This is a build-workspace operation. CI uses it after qualification so a Dev
 artifact can carry a unique version without committing generated version bumps
-back to the development branch.
+back to the development branch. app/version.py is the authoritative source;
+the remaining files are packaging metadata that must be stamped to match it.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ def stamp(version: str) -> None:
         raise ValueError("Build version must be a semantic version without a leading v.")
 
     replace_once(
-        ROOT / "app" / "main.py",
+        ROOT / "app" / "version.py",
         r'^APP_VERSION = "[^"]+"$',
         f'APP_VERSION = "{version}"',
     )
@@ -58,6 +59,11 @@ def stamp(version: str) -> None:
         ROOT / "desktop" / "src-tauri" / "Cargo.toml",
         r'^(version\s*=\s*)"[^"]+"$',
         rf'\1"{version}"',
+    )
+    replace_once(
+        ROOT / "desktop" / "src-tauri" / "Cargo.lock",
+        r'(name = "infomancer-desktop"\nversion = ")[^"]+(")',
+        rf'\g<1>{version}\g<2>',
     )
     stamp_json(ROOT / "desktop" / "src-tauri" / "tauri.conf.json", version)
     stamp_json(ROOT / "desktop" / "package.json", version)
