@@ -16,9 +16,11 @@ class PasswordSessionRotationRouteTests(unittest.TestCase):
             client=SimpleNamespace(host="127.0.0.1"),
             url=SimpleNamespace(scheme="http"),
         )
+        fresh_session.user = user
         fake_auth = Mock()
-        fake_auth.get_user.return_value = user
-        fake_auth.create_session.return_value = ("fresh-session-token", fresh_session)
+        fake_auth.change_password.return_value = (
+            "fresh-session-token", fresh_session
+        )
 
         with (
             patch.object(main, "auth_service", fake_auth),
@@ -32,9 +34,13 @@ class PasswordSessionRotationRouteTests(unittest.TestCase):
             )
 
         fake_auth.change_password.assert_called_once_with(
-            user.id, "original long password", "replacement long password"
+            user.id,
+            "original long password",
+            "replacement long password",
+            request=request,
         )
-        fake_auth.create_session.assert_called_once_with(user, request)
+        fake_auth.create_session.assert_not_called()
+        fake_auth.get_user.assert_not_called()
         fake_auth.revoke_user_sessions.assert_not_called()
         self.assertIs(request.state.auth_session, fresh_session)
         self.assertEqual(response.status_code, 303)

@@ -219,6 +219,27 @@ class AuthServiceTests(unittest.TestCase):
         self.assertNotIn(fresh.csrf_token, {first.csrf_token, second.csrf_token})
         self.assertEqual(self.auth.session_from_token(fresh_raw).user.id, user.id)
 
+    def test_interactive_password_change_rotates_session_atomically(self):
+        user = self.auth.create_user(
+            "atomicrotate", "atomic@example.com", "Atomic Rotate",
+            "original atomic password", role="member",
+        )
+        old_raw, old_session = self.auth.create_session(user, self.request)
+
+        fresh_raw, fresh_session = self.auth.change_password(
+            user.id,
+            "original atomic password",
+            "replacement atomic password",
+            request=self.request,
+        )
+
+        self.assertIsNone(self.auth.session_from_token(old_raw))
+        self.assertNotEqual(fresh_raw, old_raw)
+        self.assertNotEqual(fresh_session.csrf_token, old_session.csrf_token)
+        self.assertEqual(self.auth.session_from_token(fresh_raw).user.id, user.id)
+        active = self.auth.list_sessions(user.id)
+        self.assertEqual([row["id"] for row in active], [fresh_session.id])
+
     def test_home_preferences_survive_session_reload(self):
         user = self.auth.create_user(
             "homeprefs", "home@example.com", "Home Preferences",

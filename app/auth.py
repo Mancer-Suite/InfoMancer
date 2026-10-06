@@ -845,8 +845,18 @@ class AuthService:
             )
         return self.get_user(user_id)
 
-    def change_password(self, user_id: int, current_password: str, new_password: str) -> None:
+    def change_password(
+        self, user_id: int, current_password: str, new_password: str, request=None,
+    ) -> tuple[str, AuthSession] | None:
         self.validate_password(new_password, "New password")
+        raw_token = secrets.token_urlsafe(48) if request is not None else ""
+        csrf_token = secrets.token_urlsafe(32) if request is not None else ""
+        expires = (
+            utcnow() + timedelta(days=self.settings.session_days)
+            if request is not None else None
+        )
+        session_row = None
+        refreshed_row = None
         with self.database.connect() as conn:
             row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             if not row:
@@ -863,10 +873,42 @@ class AuthService:
                    WHERE id=?""",
                 (password_hasher.hash(new_password), user_id),
             )
-            # Password rotation invalidates every bearer session, including the
-            # browser that submitted the change. The route may issue that browser
-            # a brand-new session only after this transaction commits.
+            # Revoke all bearer material and, for an interactive change, insert
+            # the replacement session in the same transaction as the password
+            # update. A crash can therefore leave either the old state or the
+            # new password plus its replacement session, never an in-between
+            # committed state with every session gone.
             conn.execute("DELETE FROM user_sessions WHERE user_id=?", (user_id,))
+            if request is not None:
+                session_id = conn.execute(
+                    """INSERT INTO user_sessions
+                       (user_id,token_hash,csrf_token,expires_at,user_agent,ip_address)
+                       VALUES (?,?,?,?,?,?)""",
+                    (
+                        user_id, token_hash(raw_token), csrf_token,
+                        iso_timestamp(expires),
+                        request.headers.get("user-agent", "")[:500],
+                        request_ip(request, self.settings),
+                    ),
+                ).lastrowid
+                session_row = conn.execute(
+                    "SELECT * FROM user_sessions WHERE id=?", (session_id,)
+                ).fetchone()
+                refreshed_row = conn.execute(
+                    "SELECT * FROM users WHERE id=?", (user_id,)
+                ).fetchone()
+        if request is None:
+            return None
+        if session_row is None or refreshed_row is None:
+            raise AuthenticationError("The replacement session could not be created.")
+        refreshed_user = user_from_row(refreshed_row)
+        return raw_token, AuthSession(
+            id=session_row["id"], user=refreshed_user,
+            csrf_token=session_row["csrf_token"],
+            created_at=session_row["created_at"],
+            last_seen_at=session_row["last_seen_at"],
+            expires_at=session_row["expires_at"],
+        )
 
     def update_user_admin(
         self, user_id: int, display_name: str, email: str, role: str,

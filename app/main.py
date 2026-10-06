@@ -1630,14 +1630,13 @@ def change_account_password(
         }, status_code=400)
     try:
         user_id = request.state.user.id
-        auth_service.change_password(user_id, current_password, new_password)
-        refreshed_user = auth_service.get_user(user_id)
-        if not refreshed_user:
-            raise AuthenticationError("Account not found.")
-        new_session_token, new_session = auth_service.create_session(
-            refreshed_user, request
+        rotation = auth_service.change_password(
+            user_id, current_password, new_password, request=request
         )
-        request.state.user = refreshed_user
+        if rotation is None:
+            raise AuthenticationError("The replacement session could not be created.")
+        new_session_token, new_session = rotation
+        request.state.user = new_session.user
         request.state.auth_session = new_session
         record_security_event(
             "Account password was changed; prior sessions were revoked and the current browser received a fresh session.",
