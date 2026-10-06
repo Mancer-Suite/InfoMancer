@@ -104,7 +104,27 @@ def _verified_cloudflare_request(request, settings: Settings) -> bool:
     return settings.auth_mode == "cloudflare" and bool(claims)
 
 
+def _trusted_proxy_peer(request, settings: Settings) -> bool:
+    """Require the socket peer itself to be inside an explicit trusted range."""
+    if not request.client or not request.client.host:
+        return False
+    try:
+        peer = ipaddress.ip_address(request.client.host)
+    except ValueError:
+        return False
+    for value in getattr(settings, "trusted_proxy_cidrs", ()):
+        try:
+            network = ipaddress.ip_network(value, strict=False)
+        except ValueError:
+            continue
+        if peer in network:
+            return True
+    return False
+
+
 def _trusted_cloudflare_proxy(request, settings: Settings) -> bool:
+    if not _trusted_proxy_peer(request, settings):
+        return False
     return settings.trust_cloudflare_proxy or _verified_cloudflare_request(
         request, settings
     )

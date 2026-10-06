@@ -69,6 +69,7 @@ def settings(**overrides):
         "public_url": "",
         "cookie_secure": "auto",
         "trust_cloudflare_proxy": False,
+        "trusted_proxy_cidrs": (),
     }
     values.update(overrides)
     return SimpleNamespace(**values)
@@ -114,7 +115,7 @@ class HostAndOriginAdversarialTests(unittest.TestCase):
         self.assertEqual(request_ip(request, configured), "10.0.0.25")
         self.assertFalse(secure_cookie_for(request, configured))
 
-    def test_explicit_private_cloudflare_proxy_trust_uses_forwarded_metadata(self):
+    def test_proxy_trust_flag_without_peer_allowlist_still_ignores_headers(self):
         request, _ = make_request(
             host="media.example.test",
             headers={
@@ -124,8 +125,37 @@ class HostAndOriginAdversarialTests(unittest.TestCase):
             client_host="10.0.0.25",
         )
         configured = settings(auth_mode="local", trust_cloudflare_proxy=True)
+        self.assertEqual(request_ip(request, configured), "10.0.0.25")
+        self.assertFalse(secure_cookie_for(request, configured))
+
+    def test_explicit_private_cloudflare_proxy_trust_uses_forwarded_metadata(self):
+        request, _ = make_request(
+            host="media.example.test",
+            headers={
+                "cf-connecting-ip": "203.0.113.44",
+                "x-forwarded-proto": "https",
+            },
+            client_host="10.0.0.25",
+        )
+        configured = settings(
+            auth_mode="local",
+            trust_cloudflare_proxy=True,
+            trusted_proxy_cidrs=("10.0.0.25/32",),
+        )
         self.assertEqual(request_ip(request, configured), "203.0.113.44")
         self.assertTrue(secure_cookie_for(request, configured))
+
+    def test_proxy_allowlist_does_not_trust_out_of_range_peer(self):
+        request, _ = make_request(
+            headers={"cf-connecting-ip": "203.0.113.44"},
+            client_host="10.0.0.26",
+        )
+        configured = settings(
+            auth_mode="local",
+            trust_cloudflare_proxy=True,
+            trusted_proxy_cidrs=("10.0.0.25/32",),
+        )
+        self.assertEqual(request_ip(request, configured), "10.0.0.26")
 
 
 class RequestParserAdversarialTests(unittest.IsolatedAsyncioTestCase):
