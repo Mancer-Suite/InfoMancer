@@ -33,7 +33,7 @@ gh auth login
 gh repo create infomancer --private --source=. --remote=origin --push
 ```
 
-## Create an alpha package
+## Create a signed Server release
 
 The release builder uses an explicit allowlist. It does not include local
 environment files, databases, media, `compose.atlas.yaml`, Cloudflare
@@ -49,29 +49,40 @@ On macOS or Linux:
 python3 scripts/build_release.py
 ```
 
-Upload both files created in `dist/` to the GitHub release:
+Server releases must use an existing annotated GPG-signed Git tag. Do not let
+`gh release create` create the tag implicitly.
 
-- `InfoMancer-VERSION.zip`
-- `SHA256SUMS.txt`
-
-After the initial commit and push, create a private prerelease with GitHub CLI:
+For the 0.9 integration line, create the signed tag from a qualified commit on
+`testing/0.9-alpha`:
 
 ```powershell
-gh release create v0.4.0-alpha.1 `
-  .\dist\InfoMancer-0.4.0-alpha.1.zip `
-  .\dist\SHA256SUMS.txt `
-  --prerelease `
-  --title "InfoMancer 0.4.0 Alpha 1" `
-  --generate-notes
+git switch testing/0.9-alpha
+git pull --ff-only
+git tag -s v0.9.0-beta.1 -m "InfoMancer v0.9.0-beta.1"
+git verify-tag --raw v0.9.0-beta.1
+git push origin refs/tags/v0.9.0-beta.1
 ```
 
-Only friends who have access to the private repository can open or download
-its private releases.
+Then run the **Publish Signed Server Release** workflow with that exact tag.
+The workflow requires:
 
-Without GitHub CLI, create an empty private repository on GitHub (do not add a
-README, license, or `.gitignore` there), then use the `git remote add` and
-`git push` commands GitHub displays.
+- repository variable `INFOMANCER_UPDATE_SIGNERS` containing one or more full
+  trusted OpenPGP fingerprints;
+- Actions secret `INFOMANCER_RELEASE_GPG_PUBLIC_KEYS` containing the matching
+  ASCII-armored public key or keys;
+- Actions secret `INFOMANCER_RULESET_AUDIT_TOKEN` containing a fine-grained
+  token scoped to this repository with **Administration: Read-only**; and
+- the active no-bypass tag ruleset from
+  `deploy/protect-release-tags.ruleset.json`.
 
+The workflow rejects lightweight tags, invalid signatures, untrusted signers,
+signed-tag aliases, mutable or bypassable release-tag protection, commits not
+reachable from `testing/0.9-alpha`, tags that do not match `APP_VERSION`,
+and an already-existing GitHub release. It builds
+`InfoMancer-Server-VERSION.zip` plus `SHA256SUMS.txt` only after verification.
+
+See `docs/UPDATES_ADVANCED.md` for updater-side trust configuration. Desktop
+Tauri updater signing is separate from Server Git-tag signing.
 ## Later options
 
 - **Keep it private:** simplest for a personal administration tool.
