@@ -82,16 +82,81 @@ older local tag can never be mistaken for the just-fetched remote object:
 
 ```bash
 set -euo pipefail
-candidate_ref=refs/infomancer/manual-candidates/vX.Y.Z
-trap 'git update-ref -d "$candidate_ref" >/dev/null 2>&1 || true' EXIT
+release_tag=vX.Y.Z
+candidate_ref="refs/infomancer/manual-candidates/$release_tag"
+verification_file="$(mktemp)"
+tag_object_file="$(mktemp)"
+trap 'rm -f "$verification_file" "$tag_object_file"; git update-ref -d "$candidate_ref" >/dev/null 2>&1 || true' EXIT
 
-git fetch --force --no-tags origin "+refs/tags/vX.Y.Z:$candidate_ref"
+: "${INFOMANCER_UPDATE_SIGNERS:?Set INFOMANCER_UPDATE_SIGNERS to the trusted full OpenPGP fingerprint(s)}"
+
+git fetch --force --no-tags origin "+refs/tags/$release_tag:$candidate_ref"
 [[ "$(git cat-file -t "$candidate_ref")" == "tag" ]]
-git verify-tag --raw "$candidate_ref"
-git cat-file -p "$candidate_ref"   # confirm the embedded "tag vX.Y.Z" header
+git cat-file -p "$candidate_ref" >"$tag_object_file"
+git verify-tag --raw "$candidate_ref" >"$verification_file" 2>&1
+
+python3 - "$release_tag" "$tag_object_file" "$verification_file" "$INFOMANCER_UPDATE_SIGNERS" <<'PY'
+import re
+import sys
+
+release_tag, tag_path, verification_path, configured = sys.argv[1:]
+fingerprint = re.compile(r"^(?:[0-9A-F]{40}|[0-9A-F]{64})$")
+
+def normalize(value: str) -> str:
+    value = re.sub(r"[\s:]", "", value.strip()).upper()
+    if value.startswith("0X"):
+        value = value[2:]
+    if not fingerprint.fullmatch(value):
+        raise SystemExit(
+            "INFOMANCER_UPDATE_SIGNERS must contain only complete "
+            "40- or 64-character OpenPGP fingerprints."
+        )
+    return value
+
+trusted = {
+    normalize(value)
+    for value in re.split(r"[,;\s]+", configured)
+    if value.strip()
+}
+if not trusted:
+    raise SystemExit("No trusted release-signing fingerprint is configured.")
+
+names = []
+with open(tag_path, encoding="utf-8") as stream:
+    for raw_line in stream:
+        line = raw_line.rstrip("\n")
+        if not line:
+            break
+        if line.startswith("tag "):
+            names.append(line[4:])
+if names != [release_tag]:
+    raise SystemExit(
+        f"Signed tag object name mismatch: expected {release_tag!r}, observed {names!r}."
+    )
+
+observed = set()
+with open(verification_path, encoding="utf-8") as stream:
+    for line in stream:
+        marker = "[GNUPG:] VALIDSIG "
+        if marker not in line:
+            continue
+        fields = line.split(marker, 1)[1].split()
+        if fields and fingerprint.fullmatch(fields[0].upper()):
+            observed.add(fields[0].upper())
+        if fields and fingerprint.fullmatch(fields[-1].upper()):
+            observed.add(fields[-1].upper())
+
+if observed.isdisjoint(trusted):
+    raise SystemExit(
+        "Valid signature was not made by an allowlisted InfoMancer release key. "
+        f"Observed: {', '.join(sorted(observed)) or 'no VALIDSIG fingerprint'}"
+    )
+PY
+
 candidate_commit="$(git rev-parse --verify "$candidate_ref^{commit}")"
 git checkout --detach "$candidate_commit"
 git update-ref -d "$candidate_ref"
+rm -f "$verification_file" "$tag_object_file"
 trap - EXIT
 
 # Rebuild with the same Compose files/overrides used by this installation.
@@ -99,8 +164,8 @@ docker compose -p infomancer -f compose.yaml -f compose.atlas.yaml -f compose.cl
 curl -fsS http://127.0.0.1:8787/health
 ```
 
-Confirm the reported full fingerprint against the configured allowlist and the
-embedded tag name before checking out the captured commit. If your installation
+The block itself enforces the requested signed tag name and configured full
+fingerprint allowlist before commit resolution or checkout. If your installation
 uses different local Compose overrides, substitute those exact files in the
 rebuild command.
 
