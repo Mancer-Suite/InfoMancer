@@ -38,6 +38,55 @@ jobs:
             exit 1
           fi
 
+      - name: Require immutable release-tag protection
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ruleset_id="$(
+            gh api "repos/$GITHUB_REPOSITORY/rulesets" --paginate |
+              jq -r '.[] | select(.name == "Protect release tags" and .target == "tag" and .enforcement == "active") | .id' |
+              head -n 1
+          )"
+          if [[ -z "$ruleset_id" ]]; then
+            echo "Active tag ruleset 'Protect release tags' is required before publishing Server releases." >&2
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id" >"$RUNNER_TEMP/release-tag-ruleset.json"
+          python - "$RUNNER_TEMP/release-tag-ruleset.json" <<'PY'
+          import fnmatch
+          import json
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              ruleset = json.load(stream)
+
+          if ruleset.get("target") != "tag" or ruleset.get("enforcement") != "active":
+              raise SystemExit("Release-tag ruleset is not an active tag ruleset.")
+          if ruleset.get("bypass_actors"):
+              raise SystemExit("Release-tag ruleset must not have bypass actors.")
+
+          refs = ruleset.get("conditions", {}).get("ref_name", {})
+          includes = refs.get("include", [])
+          excludes = refs.get("exclude", [])
+          probe = "refs/tags/v0.9.0-security-probe"
+          if not any(fnmatch.fnmatchcase(probe, pattern) for pattern in includes):
+              raise SystemExit("Release-tag ruleset does not cover version tags.")
+          if any(fnmatch.fnmatchcase(probe, pattern) for pattern in excludes):
+              raise SystemExit("Release-tag ruleset excludes version tags.")
+
+          rules = {rule.get("type"): rule for rule in ruleset.get("rules", [])}
+          if "update" not in rules:
+              raise SystemExit("Release-tag ruleset must restrict updates.")
+          if "deletion" not in rules:
+              raise SystemExit("Release-tag ruleset must restrict deletions.")
+          if rules["update"].get("parameters", {}).get(
+              "update_allows_fetch_and_merge", False
+          ):
+              raise SystemExit("Release-tag update rule must not allow fetch-and-merge.")
+          PY
+
       - name: Check out repository history and tags
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -158,6 +207,7 @@ jobs:
           PY
           )"
 
+          tag_oid="$(git rev-parse --verify "$tag_ref")"
           commit="$(git rev-parse --verify "$tag_ref^{commit}")"
           auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
           git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" \
@@ -167,6 +217,7 @@ jobs:
             echo "The signed release commit is not reachable from testing/0.9-alpha." >&2
             exit 1
           fi
+          echo "tag_oid=$tag_oid" >> "$GITHUB_OUTPUT"
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "signer=$verified_signer" >> "$GITHUB_OUTPUT"
 
@@ -215,12 +266,25 @@ jobs:
             exit 1
           fi
 
-      - name: Publish immutable server release
+      - name: Reconfirm immutable tag object and publish server release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          remote_tag_oid="$(
+            git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" \
+              ls-remote --refs origin "refs/tags/$RELEASE_TAG" |
+              awk 'NR == 1 { print $1 }'
+          )"
+          unset auth_header
+          if [[ -z "$remote_tag_oid" || "$remote_tag_oid" != "${{ steps.verify.outputs.tag_oid }}" ]]; then
+            echo "Remote release tag changed after verification; publication is blocked." >&2
+            exit 1
+          fi
+
           prerelease=()
           if [[ "$RELEASE_VERSION" == *-* ]]; then
             prerelease=(--prerelease)
@@ -240,6 +304,7 @@ jobs:
           {
             echo "### Signed server release"
             echo "- Tag: \`$RELEASE_TAG\`"
+            echo "- Tag object: \`${{ steps.verify.outputs.tag_oid }}\`"
             echo "- Commit: \`${{ steps.verify.outputs.commit }}\`"
             echo "- Trusted signer: \`${{ steps.verify.outputs.signer }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
