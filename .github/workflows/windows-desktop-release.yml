@@ -3,7 +3,9 @@ name: Windows Desktop Release
 on:
   push:
     tags:
-      - 'v*'
+      # Stable releases only. Prerelease v* tags are reserved for the
+      # signed Server release path and must not wake the Standard desktop job.
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 permissions:
   contents: write

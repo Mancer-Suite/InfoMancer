@@ -69,7 +69,7 @@ class DesktopReleaseContractTests(unittest.TestCase):
             workflow,
         )
 
-    def test_draft_release_uses_least_privilege_and_retargets_existing_draft_tag(self):
+    def test_draft_release_uses_least_privilege_and_only_moves_draft_namespace_tags(self):
         workflow = (ROOT / ".github" / "workflows" / "draft-08-release.yml").read_text(
             encoding="utf-8"
         )
@@ -77,9 +77,22 @@ class DesktopReleaseContractTests(unittest.TestCase):
         self.assertIn("permissions:\n      actions: read\n      contents: write", workflow)
         self.assertIn("permissions:\n      issues: write", workflow)
         self.assertNotIn("permissions:\n  actions: read\n  contents: write", workflow)
+        self.assertIn('TAG="draft-v$VERSION"', workflow)
+        self.assertNotIn('TAG="v$VERSION"', workflow)
         self.assertIn('git/refs/tags/$TAG', workflow)
         self.assertIn('-f sha="$RELEASE_SHA"', workflow)
         self.assertIn("-F force=true", workflow)
+
+    def test_standard_windows_release_ignores_prerelease_v_tags(self):
+        workflow = (
+            ROOT / ".github" / "workflows" / "windows-desktop-release.yml"
+        ).read_text(encoding="utf-8")
+        self.assertIn("- 'v[0-9]+.[0-9]+.[0-9]+'", workflow)
+        self.assertNotIn("- 'v*'", workflow)
+        self.assertIn(
+            "Windows Desktop Release publishes the Standard channel only",
+            workflow,
+        )
 
     def test_installation_guide_documents_current_native_packages(self):
         guide = (ROOT / "docs" / "INSTALLATION.md").read_text(encoding="utf-8")

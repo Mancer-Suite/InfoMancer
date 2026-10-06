@@ -596,8 +596,8 @@ jobs:
           else
             VERSION="$(python -c 'from scripts.build_release import application_version; print(application_version())')"
           fi
-          TAG="v$VERSION"
-          TITLE="InfoMancer $VERSION"
+          TAG="draft-v$VERSION"
+          TITLE="InfoMancer $VERSION Draft"
           NOTES="docs/releases/$VERSION.md"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
@@ -632,7 +632,7 @@ jobs:
           fi
 
           gh release upload "$TAG" publish/* --clobber
-          echo "Draft release $TAG assembled from commit $RELEASE_SHA."
+          echo "Draft release $TAG assembled from commit $RELEASE_SHA. Final v* release tags are created separately as signed immutable tags."
 
   status-report:
     name: Report packaging status
