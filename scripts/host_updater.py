@@ -348,6 +348,17 @@ def process_request(
             raise UpdateError(
                 "The signed release tag does not point to the commit recorded by the qualified update manifest. The update was stopped before checkout."
             )
+        write_json(status_path, _status_with_release({
+            "status": "running",
+            "latest_version": tag,
+            "previous_commit": previous_commit,
+            "target_commit": target_commit,
+            "verified_commit": target_commit,
+            "verified_signer": verified_signer,
+            "verified_signing_key": verified_signing_key,
+            "message": f"Verified trusted release {tag}; rebuilding InfoMancer.",
+            "started_at": started_at,
+        }, release, requested_by))
         run(["git", "checkout", "--detach", target_commit], repository)
         compose = compose_command(files)
         try:
@@ -390,9 +401,6 @@ def process_request(
             "latest_version": tag,
             "previous_commit": previous_commit,
             "target_commit": target_commit,
-            "verified_commit": target_commit,
-            "verified_signer": verified_signer,
-            "verified_signing_key": verified_signing_key,
             "verified_commit": target_commit,
             "verified_signer": verified_signer,
             "verified_signing_key": verified_signing_key,
