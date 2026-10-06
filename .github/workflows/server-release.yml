@@ -20,6 +20,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag }}
       TRUSTED_SIGNERS: ${{ vars.INFOMANCER_UPDATE_SIGNERS }}
       RELEASE_PUBLIC_KEYS: ${{ secrets.INFOMANCER_RELEASE_GPG_PUBLIC_KEYS }}
+      RULESET_AUDIT_TOKEN: ${{ secrets.INFOMANCER_RULESET_AUDIT_TOKEN }}
     steps:
       - name: Validate release configuration
         shell: bash
@@ -37,11 +38,15 @@ jobs:
             echo "Set Actions secret INFOMANCER_RELEASE_GPG_PUBLIC_KEYS to the ASCII-armored trusted public key(s)." >&2
             exit 1
           fi
+          if [[ -z "${RULESET_AUDIT_TOKEN//[[:space:]]/}" ]]; then
+            echo "Set Actions secret INFOMANCER_RULESET_AUDIT_TOKEN to a fine-grained token with read-only repository Administration permission." >&2
+            exit 1
+          fi
 
       - name: Require immutable release-tag protection
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.INFOMANCER_RULESET_AUDIT_TOKEN }}
         run: |
           set -euo pipefail
           ruleset_id="$(
@@ -55,9 +60,7 @@ jobs:
           fi
           gh api "repos/$GITHUB_REPOSITORY/rulesets/$ruleset_id" >"$RUNNER_TEMP/release-tag-ruleset.json"
           python - "$RUNNER_TEMP/release-tag-ruleset.json" <<'PY'
-          import fnmatch
           import json
-          import os
           import sys
 
           with open(sys.argv[1], encoding="utf-8") as stream:
@@ -65,17 +68,26 @@ jobs:
 
           if ruleset.get("target") != "tag" or ruleset.get("enforcement") != "active":
               raise SystemExit("Release-tag ruleset is not an active tag ruleset.")
-          if ruleset.get("bypass_actors"):
+          if "bypass_actors" not in ruleset:
+              raise SystemExit(
+                  "Ruleset API response did not expose bypass actors; "
+                  "the audit credential lacks required Administration read permission."
+              )
+          if ruleset["bypass_actors"]:
               raise SystemExit("Release-tag ruleset must not have bypass actors.")
 
           refs = ruleset.get("conditions", {}).get("ref_name", {})
           includes = refs.get("include", [])
           excludes = refs.get("exclude", [])
-          release_ref = f"refs/tags/{os.environ['RELEASE_TAG']}"
-          if not any(fnmatch.fnmatchcase(release_ref, pattern) for pattern in includes):
-              raise SystemExit("Release-tag ruleset does not cover the requested release tag.")
-          if any(fnmatch.fnmatchcase(release_ref, pattern) for pattern in excludes):
-              raise SystemExit("Release-tag ruleset excludes the requested release tag.")
+          if "refs/tags/v*" not in includes:
+              raise SystemExit(
+                  "Release-tag ruleset must include the exact pattern refs/tags/v*."
+              )
+          if excludes:
+              raise SystemExit(
+                  "Release-tag ruleset must not exclude refs; version-tag immutability "
+                  "must be unconditional."
+              )
 
           rules = {rule.get("type"): rule for rule in ruleset.get("rules", [])}
           if "update" not in rules:
