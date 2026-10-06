@@ -1,10 +1,15 @@
 import json
+import re
 from pathlib import Path
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+VERSION = re.search(
+    r'^APP_VERSION\s*=\s*"([^"]+)"',
+    (ROOT / "app" / "version.py").read_text(encoding="utf-8"),
+    re.MULTILINE,
+).group(1)
 
 
 class ReleaseAssetNameContracts(unittest.TestCase):

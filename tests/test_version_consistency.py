@@ -7,30 +7,35 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
 SEMVER = re.compile(
     r"^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
 )
 
 
-def load_build_release():
-    path = ROOT / "scripts" / "build_release.py"
-    spec = importlib.util.spec_from_file_location("build_release_version_test", path)
+def load_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
 
 
+VERSION_MODULE = load_module(ROOT / "app" / "version.py", "infomancer_version_test")
+VERSION = VERSION_MODULE.APP_VERSION
+
+
 class VersionConsistencyTests(unittest.TestCase):
     def test_canonical_version_is_valid_and_used_by_server_release_builder(self):
         self.assertRegex(VERSION, SEMVER)
-        self.assertEqual(load_build_release().application_version(), VERSION)
+        builder = load_module(ROOT / "scripts" / "build_release.py", "build_release_version_test")
+        self.assertEqual(builder.application_version(), VERSION)
 
-    def test_runtime_reads_canonical_version_instead_of_embedding_a_literal(self):
+    def test_runtime_imports_canonical_version_instead_of_embedding_a_literal(self):
         source = (ROOT / "app" / "main.py").read_text(encoding="utf-8")
         self.assertIn("from .version import APP_VERSION", source)
-        self.assertNotRegex(source, r'^APP_VERSION\s*=\s*"[^"]+"')
+        self.assertIsNone(
+            re.search(r'^APP_VERSION\s*=\s*"[^"]+"', source, re.MULTILINE)
+        )
 
     def test_desktop_packaging_versions_match_canonical_version(self):
         sidecar = (ROOT / "desktop" / "sidecar.py").read_text(encoding="utf-8")
@@ -62,11 +67,11 @@ class VersionConsistencyTests(unittest.TestCase):
         self.assertEqual(cargo["package"]["version"], VERSION)
         self.assertEqual(root_package["version"], VERSION)
 
-    def test_server_runtime_image_and_package_include_version_file(self):
+    def test_server_runtime_and_release_package_carry_canonical_module(self):
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         builder = (ROOT / "scripts" / "build_release.py").read_text(encoding="utf-8")
-        self.assertIn("COPY --chown=infomancer:infomancer VERSION VERSION", dockerfile)
-        self.assertIn('"VERSION",', builder)
+        self.assertIn("COPY --chown=infomancer:infomancer app app", dockerfile)
+        self.assertIn('"app",', builder)
 
     def test_current_user_facing_release_docs_match_canonical_version(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

@@ -16,7 +16,6 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && if [ "$INFOMANCER_INSTALL_OCR" = "true" ]; then \
          pip install --no-cache-dir -r requirements-ocr.txt; \
        fi
-COPY --chown=infomancer:infomancer VERSION VERSION
 COPY --chown=infomancer:infomancer app app
 RUN mkdir -p /app/data && chown -R infomancer:infomancer /app/data
 USER infomancer

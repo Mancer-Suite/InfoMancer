@@ -594,7 +594,7 @@ jobs:
           if [[ "$GITHUB_REF_NAME" == release/* ]]; then
             VERSION="${GITHUB_REF_NAME#release/}"
           else
-            VERSION="$(tr -d '\r\n' < VERSION)"
+            VERSION="$(python -c 'from scripts.build_release import application_version; print(application_version())')"
           fi
           TAG="v$VERSION"
           TITLE="InfoMancer $VERSION"

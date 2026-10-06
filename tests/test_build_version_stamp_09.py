@@ -23,7 +23,7 @@ class BuildVersionStamp09Tests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             temporary = Path(directory)
             for relative in (
-                "VERSION",
+                "app/version.py",
                 "desktop/sidecar.py",
                 "desktop/src-tauri/Cargo.toml",
                 "desktop/src-tauri/Cargo.lock",
@@ -38,7 +38,7 @@ class BuildVersionStamp09Tests(unittest.TestCase):
             module.ROOT = temporary
             module.stamp("0.9.0-dev.2375")
 
-            canonical = (temporary / "VERSION").read_text(encoding="utf-8").strip()
+            canonical = (temporary / "app/version.py").read_text(encoding="utf-8")
             sidecar = (temporary / "desktop/sidecar.py").read_text(encoding="utf-8")
             cargo = (temporary / "desktop/src-tauri/Cargo.toml").read_text(encoding="utf-8")
             cargo_lock = (temporary / "desktop/src-tauri/Cargo.lock").read_text(encoding="utf-8")
@@ -46,7 +46,7 @@ class BuildVersionStamp09Tests(unittest.TestCase):
             package = json.loads((temporary / "desktop/package.json").read_text(encoding="utf-8"))
             lock = json.loads((temporary / "desktop/package-lock.json").read_text(encoding="utf-8"))
 
-            self.assertEqual(canonical, "0.9.0-dev.2375")
+            self.assertIn('APP_VERSION = "0.9.0-dev.2375"', canonical)
             self.assertIn('DESKTOP_VERSION = "0.9.0-dev.2375"', sidecar)
             self.assertIn('version = "0.9.0-dev.2375"', cargo)
             self.assertIn(

@@ -3,8 +3,8 @@
 
 This is a build-workspace operation. CI uses it after qualification so a Dev
 artifact can carry a unique version without committing generated version bumps
-back to the development branch. VERSION is the authoritative source; the
-remaining files are packaging metadata that must be stamped to match it.
+back to the development branch. app/version.py is the authoritative source;
+the remaining files are packaging metadata that must be stamped to match it.
 """
 
 from __future__ import annotations
@@ -45,7 +45,11 @@ def stamp(version: str) -> None:
     if not VERSION_PATTERN.fullmatch(version):
         raise ValueError("Build version must be a semantic version without a leading v.")
 
-    (ROOT / "VERSION").write_text(version + "\n", encoding="utf-8")
+    replace_once(
+        ROOT / "app" / "version.py",
+        r'^APP_VERSION = "[^"]+"$',
+        f'APP_VERSION = "{version}"',
+    )
     replace_once(
         ROOT / "desktop" / "sidecar.py",
         r'^DESKTOP_VERSION = "[^"]+"$',
