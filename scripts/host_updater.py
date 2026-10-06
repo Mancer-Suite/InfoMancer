@@ -426,6 +426,12 @@ def process_request(
             "started_at": started_at,
             "finished_at": finished_at,
         }, release, requested_by)
+        if target_commit:
+            status["verified_commit"] = target_commit
+        if verified_signer:
+            status["verified_signer"] = verified_signer
+        if verified_signing_key:
+            status["verified_signing_key"] = verified_signing_key
         write_json(status_path, status)
         try:
             append_history(data_directory, status)
