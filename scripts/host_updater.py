@@ -20,6 +20,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Iterable
 
 
 TAG_PATTERN = re.compile(r"v?\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.-]+)?")
@@ -89,13 +90,22 @@ def verified_signature_fingerprints(status: str) -> set[str]:
     return fingerprints
 
 
-def normalize_trusted_signing_keys(values: set[str] | None) -> set[str]:
+def normalize_fingerprint(value: str) -> str:
+    """Normalize one complete OpenPGP fingerprint and reject short key IDs."""
+    normalized = re.sub(r"[\s:]", "", value.strip()).upper()
+    if normalized.startswith("0X"):
+        normalized = normalized[2:]
+    if not FINGERPRINT_PATTERN.fullmatch(normalized):
+        raise UpdateError(
+            "Trusted signing-key fingerprints must be complete 40- or "
+            "64-character OpenPGP fingerprints."
+        )
+    return normalized
+
+
+def normalize_trusted_signing_keys(values: Iterable[str] | None) -> set[str]:
     """Normalize and validate the explicit release-signing trust boundary."""
-    trusted = {
-        value.replace(" ", "").upper()
-        for value in (values or set())
-        if value and FINGERPRINT_PATTERN.fullmatch(value.replace(" ", ""))
-    }
+    trusted = {normalize_fingerprint(value) for value in (values or ()) if value.strip()}
     if not trusted:
         raise UpdateError(
             "At least one trusted InfoMancer release signing-key fingerprint is required."
@@ -103,12 +113,40 @@ def normalize_trusted_signing_keys(values: set[str] | None) -> set[str]:
     return trusted
 
 
+def trusted_signers_from_config(
+    environment_value: str | None, cli_values: Iterable[str] | None,
+) -> set[str]:
+    values: list[str] = []
+    if environment_value:
+        values.extend(
+            value for value in re.split(r"[,;\s]+", environment_value) if value
+        )
+    for value in cli_values or ():
+        values.extend(item for item in re.split(r"[,;\s]+", value) if item)
+    return normalize_trusted_signing_keys(values)
+
+
+def annotated_tag_name(tag_object: str) -> str:
+    """Return the single embedded name from an annotated tag object's header."""
+    names: list[str] = []
+    for line in tag_object.splitlines():
+        if not line:
+            break
+        if line.startswith("tag "):
+            names.append(line[4:])
+    if len(names) != 1 or not names[0]:
+        raise UpdateError(
+            "The release tag object does not contain exactly one embedded tag name."
+        )
+    return names[0]
+
+
 def verify_release_tag(
-    tag: str, repository: Path, trusted_signing_keys: set[str] | None = None,
-) -> None:
+    tag_ref: str, repository: Path, trusted_signing_keys: set[str] | None = None,
+) -> tuple[str, str]:
     trusted = normalize_trusted_signing_keys(trusted_signing_keys)
     completed = subprocess.run(
-        ["git", "verify-tag", "--raw", tag], cwd=repository, text=True,
+        ["git", "verify-tag", "--raw", tag_ref], cwd=repository, text=True,
         capture_output=True, check=False,
     )
     status = "\n".join(part for part in (completed.stdout, completed.stderr) if part)
@@ -123,9 +161,65 @@ def verify_release_tag(
             "Git accepted the release tag signature, but InfoMancer could not identify "
             "the signing key fingerprint. The update was stopped."
         )
-    if fingerprints.isdisjoint(trusted):
+    matches = sorted(fingerprints & trusted)
+    if not matches:
         raise UpdateError(
             "The release tag was signed, but not by a configured trusted InfoMancer release key."
+        )
+
+    signing_fingerprint = ""
+    for line in status.splitlines():
+        marker = "[GNUPG:] VALIDSIG "
+        if marker not in line:
+            continue
+        fields = line.split(marker, 1)[1].split()
+        if fields and FINGERPRINT_PATTERN.fullmatch(fields[0]):
+            signing_fingerprint = fields[0].upper()
+            break
+    return matches[0], signing_fingerprint or matches[0]
+
+
+def fetch_and_verify_release_tag(
+    tag: str, repository: Path, trusted_signing_keys: set[str] | None,
+) -> tuple[str, str, str]:
+    """Fetch one exact tag into an isolated ref and verify it before resolving."""
+    candidate_ref = f"refs/infomancer/update-candidates/{tag}"
+    tag_ref = f"refs/tags/{tag}"
+    try:
+        run(
+            [
+                "git", "fetch", "--force", "--no-tags", "origin",
+                f"+{tag_ref}:{candidate_ref}",
+            ],
+            repository,
+        )
+        if run(["git", "cat-file", "-t", candidate_ref], repository) != "tag":
+            raise UpdateError(
+                "The requested release uses a lightweight tag. Automatic updates "
+                "require an annotated, cryptographically signed tag."
+            )
+        tag_object = run(["git", "cat-file", "-p", candidate_ref], repository)
+        trusted_fingerprint, signing_fingerprint = verify_release_tag(
+            candidate_ref, repository, trusted_signing_keys,
+        )
+        embedded_tag = annotated_tag_name(tag_object)
+        if embedded_tag != tag:
+            raise UpdateError(
+                "The requested release tag ref does not match the signed tag "
+                f"object name: requested {tag!r}, signed object names {embedded_tag!r}."
+            )
+        target_commit = run(
+            ["git", "rev-parse", "--verify", f"{candidate_ref}^{{commit}}"],
+            repository,
+        )
+        return target_commit, trusted_fingerprint, signing_fingerprint
+    finally:
+        subprocess.run(
+            ["git", "update-ref", "-d", candidate_ref],
+            cwd=repository,
+            text=True,
+            capture_output=True,
+            check=False,
         )
 
 
@@ -213,6 +307,8 @@ def process_request(
     release: dict = {}
     previous_commit = ""
     target_commit = ""
+    verified_signer = ""
+    verified_signing_key = ""
     started_at = utc_now()
     try:
         request = json.loads(request_path.read_text(encoding="utf-8"))
@@ -244,11 +340,8 @@ def process_request(
                 "so those changes would not be overwritten."
             )
         previous_commit = run(["git", "rev-parse", "HEAD"], repository)
-        run(["git", "fetch", "--tags", "origin"], repository)
-        verify_release_tag(tag, repository, trusted_signing_keys)
-        target_commit = run(
-            ["git", "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
-            repository,
+        target_commit, verified_signer, verified_signing_key = fetch_and_verify_release_tag(
+            tag, repository, trusted_signing_keys,
         )
         qualified_commit = str(release.get("commit_sha") or "").strip().casefold()
         if qualified_commit and target_commit.casefold() != qualified_commit:
@@ -276,6 +369,9 @@ def process_request(
                 "status": "rolled_back", "latest_version": tag,
                 "previous_commit": previous_commit,
                 "target_commit": target_commit,
+                "verified_commit": target_commit,
+                "verified_signer": verified_signer,
+                "verified_signing_key": verified_signing_key,
                 "message": (
                     "The update did not start correctly, so InfoMancer "
                     "returned to the previous release."
@@ -294,6 +390,12 @@ def process_request(
             "latest_version": tag,
             "previous_commit": previous_commit,
             "target_commit": target_commit,
+            "verified_commit": target_commit,
+            "verified_signer": verified_signer,
+            "verified_signing_key": verified_signing_key,
+            "verified_commit": target_commit,
+            "verified_signer": verified_signer,
+            "verified_signing_key": verified_signing_key,
             "message": f"InfoMancer was updated successfully to {tag}.",
             "started_at": started_at,
             "finished_at": finished_at,
@@ -336,8 +438,12 @@ def parser() -> argparse.ArgumentParser:
     value.add_argument("--health-url", default="http://127.0.0.1:8787/health")
     value.add_argument("--health-timeout", type=int, default=120)
     value.add_argument(
-        "--trusted-signing-key", action="append", default=[],
-        help="Required trusted primary or signing-subkey GPG fingerprint. May be supplied more than once.",
+        "--trusted-signing-key", "--trusted-tag-signer",
+        action="append", default=[], dest="trusted_signing_keys",
+        help=(
+            "Trusted full primary or signing-subkey OpenPGP fingerprint. "
+            "May be supplied more than once."
+        ),
     )
     value.add_argument("--watch", action="store_true")
     value.add_argument("--poll-seconds", type=int, default=5)
@@ -352,8 +458,9 @@ def main() -> int:
         data_directory = repository / data_directory
     files = arguments.compose_files or ["compose.yaml"]
     try:
-        trusted_signing_keys = normalize_trusted_signing_keys(
-            {value for value in arguments.trusted_signing_key if value.strip()}
+        trusted_signing_keys = trusted_signers_from_config(
+            os.environ.get("INFOMANCER_UPDATE_SIGNERS"),
+            arguments.trusted_signing_keys,
         )
     except UpdateError as exc:
         print(f"Updater configuration error: {exc}", file=sys.stderr)
