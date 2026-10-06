@@ -81,14 +81,18 @@ A maintainer can inspect a candidate manually with an isolated ref so an
 older local tag can never be mistaken for the just-fetched remote object:
 
 ```bash
+set -euo pipefail
 candidate_ref=refs/infomancer/manual-candidates/vX.Y.Z
+trap 'git update-ref -d "$candidate_ref" >/dev/null 2>&1 || true' EXIT
+
 git fetch --force --no-tags origin "+refs/tags/vX.Y.Z:$candidate_ref"
-git cat-file -t "$candidate_ref"   # must print: tag
+[[ "$(git cat-file -t "$candidate_ref")" == "tag" ]]
 git verify-tag --raw "$candidate_ref"
 git cat-file -p "$candidate_ref"   # confirm the embedded "tag vX.Y.Z" header
 candidate_commit="$(git rev-parse --verify "$candidate_ref^{commit}")"
 git checkout --detach "$candidate_commit"
 git update-ref -d "$candidate_ref"
+trap - EXIT
 
 # Rebuild with the same Compose files/overrides used by this installation.
 docker compose -p infomancer -f compose.yaml -f compose.atlas.yaml -f compose.cloudflare.yaml up -d --build --remove-orphans
