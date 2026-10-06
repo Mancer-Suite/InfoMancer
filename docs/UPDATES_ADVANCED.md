@@ -67,7 +67,9 @@ Then use the **Publish Signed Server Release** GitHub Actions workflow with that
 - the tag version matches `APP_VERSION` in the verified commit; and
 - the GitHub release does not already exist.
 
-The workflow also requires an active repository tag ruleset named **Protect release tags** with no bypass actors. It must cover version tags and restrict both updates and deletions while still allowing new tags to be created. Import the repository template at `deploy/protect-release-tags.ruleset.json` through **Settings > Rulesets > New ruleset > Import a ruleset** before publishing the first Server release. The workflow validates the active ruleset itself, records the verified annotated-tag object ID, and reconfirms the remote ref still points to that same immutable object immediately before publication.
+The workflow also requires an active repository tag ruleset named **Protect release tags** with no bypass actors. It must include the exact pattern `refs/tags/v*`, have no exclusions, and restrict both updates and deletions while still allowing new tags to be created. Import the repository template at `deploy/protect-release-tags.ruleset.json` through **Settings > Rulesets > New ruleset > Import a ruleset** before publishing the first Server release.
+
+Because GitHub's normal workflow token cannot see ruleset bypass actors, add Actions secret `INFOMANCER_RULESET_AUDIT_TOKEN` containing a fine-grained GitHub token scoped only to the InfoMancer repository with **Administration: Read-only** permission. The workflow rejects ruleset responses where the bypass list is hidden, rejects any nonempty bypass list, records the verified annotated-tag object ID, and reconfirms the remote ref still points to that same immutable object immediately before publication.
 
 The workflow imports trusted public release keys from the Actions secret `INFOMANCER_RELEASE_GPG_PUBLIC_KEYS`. It never needs the private release-signing key.
 
@@ -84,12 +86,19 @@ git fetch --force --no-tags origin "+refs/tags/vX.Y.Z:$candidate_ref"
 git cat-file -t "$candidate_ref"   # must print: tag
 git verify-tag --raw "$candidate_ref"
 git cat-file -p "$candidate_ref"   # confirm the embedded "tag vX.Y.Z" header
-git rev-parse --verify "$candidate_ref^{commit}"
+candidate_commit="$(git rev-parse --verify "$candidate_ref^{commit}")"
+git checkout --detach "$candidate_commit"
 git update-ref -d "$candidate_ref"
+
+# Rebuild with the same Compose files/overrides used by this installation.
+docker compose -p infomancer -f compose.yaml -f compose.atlas.yaml -f compose.cloudflare.yaml up -d --build --remove-orphans
+curl -fsS http://127.0.0.1:8787/health
 ```
 
 Confirm the reported full fingerprint against the configured allowlist and the
-embedded tag name before checking out the resolved release commit.
+embedded tag name before checking out the captured commit. If your installation
+uses different local Compose overrides, substitute those exact files in the
+rebuild command.
 
 Create a backup first and preserve the deployment's `.env`, local Compose override, and `data/` directory.
 
