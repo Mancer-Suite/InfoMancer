@@ -46,9 +46,14 @@ jobs:
 
       - name: Fetch only the requested release tag
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          git fetch --force --no-tags origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" \
+            fetch --force --no-tags origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          unset auth_header
 
       - name: Import trusted release public keys
         shell: bash
@@ -59,6 +64,8 @@ jobs:
       - name: Verify annotated tag and trusted signer
         id: verify
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           tag_ref="refs/tags/$RELEASE_TAG"
@@ -152,7 +159,10 @@ jobs:
           )"
 
           commit="$(git rev-parse --verify "$tag_ref^{commit}")"
-          git fetch --no-tags origin "testing/0.9-alpha:refs/remotes/origin/testing/0.9-alpha"
+          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth_header" \
+            fetch --no-tags origin "testing/0.9-alpha:refs/remotes/origin/testing/0.9-alpha"
+          unset auth_header
           if ! git merge-base --is-ancestor "$commit" refs/remotes/origin/testing/0.9-alpha; then
             echo "The signed release commit is not reachable from testing/0.9-alpha." >&2
             exit 1
