@@ -72,14 +72,12 @@ class HostUpdater09Tests(unittest.TestCase):
                     return ""
                 if command == ["git", "rev-parse", "HEAD"]:
                     return current_commit
-                if command[:2] == ["git", "fetch"]:
-                    return ""
-                if command[:3] == ["git", "rev-parse", "--verify"]:
-                    return signed_tag_commit
                 self.fail(f"Unexpected command after trust mismatch: {command}")
 
             with mock.patch.object(host_updater, "run", side_effect=fake_run), mock.patch.object(
-                host_updater, "verify_release_tag"
+                host_updater,
+                "fetch_and_verify_release_tag",
+                return_value=(signed_tag_commit, "D" * 40, "D" * 40),
             ) as verify:
                 handled = host_updater.process_request(
                     repository,
@@ -91,7 +89,7 @@ class HostUpdater09Tests(unittest.TestCase):
                 )
 
             self.assertTrue(handled)
-            verify.assert_called_once()
+            verify.assert_called_once_with(tag, repository, {"D" * 40})
             status = json.loads((data / "update-status.json").read_text())
             self.assertEqual(status["status"], "error")
             self.assertEqual(status["release"]["build_id"], "qualified-2410")
@@ -132,14 +130,12 @@ class HostUpdater09Tests(unittest.TestCase):
                     return ""
                 if command == ["git", "rev-parse", "HEAD"]:
                     return previous_commit
-                if command[:2] == ["git", "fetch"]:
-                    return ""
-                if command[:3] == ["git", "rev-parse", "--verify"]:
-                    return target_commit
                 return ""
 
             with mock.patch.object(host_updater, "run", side_effect=fake_run), mock.patch.object(
-                host_updater, "verify_release_tag"
+                host_updater,
+                "fetch_and_verify_release_tag",
+                return_value=(target_commit, "D" * 40, "D" * 40),
             ) as verify, mock.patch.object(host_updater, "wait_for_health") as health:
                 handled = host_updater.process_request(
                     repository,
@@ -190,15 +186,13 @@ class HostUpdater09Tests(unittest.TestCase):
                     return ""
                 if command == ["git", "rev-parse", "HEAD"]:
                     return previous_commit
-                if command[:2] == ["git", "fetch"]:
-                    return ""
-                if command[:3] == ["git", "rev-parse", "--verify"]:
-                    return target_commit
                 return ""
 
             health_results = [host_updater.UpdateError("target unhealthy"), None]
             with mock.patch.object(host_updater, "run", side_effect=fake_run), mock.patch.object(
-                host_updater, "verify_release_tag"
+                host_updater,
+                "fetch_and_verify_release_tag",
+                return_value=(target_commit, "D" * 40, "D" * 40),
             ), mock.patch.object(host_updater, "wait_for_health", side_effect=health_results):
                 handled = host_updater.process_request(
                     repository,
