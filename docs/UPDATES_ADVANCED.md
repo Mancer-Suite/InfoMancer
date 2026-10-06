@@ -67,20 +67,29 @@ Then use the **Publish Signed Server Release** GitHub Actions workflow with that
 - the tag version matches `APP_VERSION` in the verified commit; and
 - the GitHub release does not already exist.
 
+The workflow also requires an active repository tag ruleset named **Protect release tags** with no bypass actors. It must cover version tags and restrict both updates and deletions while still allowing new tags to be created. The workflow records the verified annotated-tag object ID and reconfirms the remote ref still points to that same immutable object immediately before publication.
+
 The workflow imports trusted public release keys from the Actions secret `INFOMANCER_RELEASE_GPG_PUBLIC_KEYS`. It never needs the private release-signing key.
 
 # Manual repository update
 
 For an installation intentionally deployed from a Git checkout, use the same trust boundary rather than checking out an unverified tag.
 
-A maintainer can inspect a candidate manually with:
+A maintainer can inspect a candidate manually with an isolated ref so an
+older local tag can never be mistaken for the just-fetched remote object:
 
 ```bash
-git fetch --no-tags origin refs/tags/vX.Y.Z
-git verify-tag --raw vX.Y.Z
+candidate_ref=refs/infomancer/manual-candidates/vX.Y.Z
+git fetch --force --no-tags origin "+refs/tags/vX.Y.Z:$candidate_ref"
+git cat-file -t "$candidate_ref"   # must print: tag
+git verify-tag --raw "$candidate_ref"
+git cat-file -p "$candidate_ref"   # confirm the embedded "tag vX.Y.Z" header
+git rev-parse --verify "$candidate_ref^{commit}"
+git update-ref -d "$candidate_ref"
 ```
 
-Confirm the reported full fingerprint against the configured allowlist before checking out the release commit.
+Confirm the reported full fingerprint against the configured allowlist and the
+embedded tag name before checking out the resolved release commit.
 
 Create a backup first and preserve the deployment's `.env`, local Compose override, and `data/` directory.
 
