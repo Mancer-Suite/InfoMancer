@@ -67,7 +67,7 @@ Then use the **Publish Signed Server Release** GitHub Actions workflow with that
 - the tag version matches `APP_VERSION` in the verified commit; and
 - the GitHub release does not already exist.
 
-The workflow also requires an active repository tag ruleset named **Protect release tags** with no bypass actors. It must cover version tags and restrict both updates and deletions while still allowing new tags to be created. The workflow records the verified annotated-tag object ID and reconfirms the remote ref still points to that same immutable object immediately before publication.
+The workflow also requires an active repository tag ruleset named **Protect release tags** with no bypass actors. It must cover version tags and restrict both updates and deletions while still allowing new tags to be created. Import the repository template at `deploy/protect-release-tags.ruleset.json` through **Settings > Rulesets > New ruleset > Import a ruleset** before publishing the first Server release. The workflow validates the active ruleset itself, records the verified annotated-tag object ID, and reconfirms the remote ref still points to that same immutable object immediately before publication.
 
 The workflow imports trusted public release keys from the Actions secret `INFOMANCER_RELEASE_GPG_PUBLIC_KEYS`. It never needs the private release-signing key.
 
