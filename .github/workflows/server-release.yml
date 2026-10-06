@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! "$RELEASE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.-]+)?$ ]]; then
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.-]+)?$ ]]; then
             echo "Release tag does not match InfoMancer's Server release format." >&2
             exit 1
           fi
@@ -57,6 +57,7 @@ jobs:
           python - "$RUNNER_TEMP/release-tag-ruleset.json" <<'PY'
           import fnmatch
           import json
+          import os
           import sys
 
           with open(sys.argv[1], encoding="utf-8") as stream:
@@ -70,11 +71,11 @@ jobs:
           refs = ruleset.get("conditions", {}).get("ref_name", {})
           includes = refs.get("include", [])
           excludes = refs.get("exclude", [])
-          probe = "refs/tags/v0.9.0-security-probe"
-          if not any(fnmatch.fnmatchcase(probe, pattern) for pattern in includes):
-              raise SystemExit("Release-tag ruleset does not cover version tags.")
-          if any(fnmatch.fnmatchcase(probe, pattern) for pattern in excludes):
-              raise SystemExit("Release-tag ruleset excludes version tags.")
+          release_ref = f"refs/tags/{os.environ['RELEASE_TAG']}"
+          if not any(fnmatch.fnmatchcase(release_ref, pattern) for pattern in includes):
+              raise SystemExit("Release-tag ruleset does not cover the requested release tag.")
+          if any(fnmatch.fnmatchcase(release_ref, pattern) for pattern in excludes):
+              raise SystemExit("Release-tag ruleset excludes the requested release tag.")
 
           rules = {rule.get("type"): rule for rule in ruleset.get("rules", [])}
           if "update" not in rules:
