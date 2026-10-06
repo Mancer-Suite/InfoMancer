@@ -8,9 +8,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class WindowsDesktopContractTests(unittest.TestCase):
-    def test_desktop_version_matches_application_alpha(self):
-        main = (ROOT / "app/main.py").read_text(encoding="utf-8")
-        match = re.search(r'APP_VERSION = "([^"]+)"', main)
+    def test_desktop_version_matches_canonical_application_version(self):
+        version_module = (ROOT / "app/version.py").read_text(encoding="utf-8")
+        match = re.search(r'APP_VERSION = "([^"]+)"', version_module)
         self.assertIsNotNone(match)
         expected_version = match.group(1)
         config = json.loads((ROOT / "desktop/src-tauri/tauri.conf.json").read_text(encoding="utf-8"))
