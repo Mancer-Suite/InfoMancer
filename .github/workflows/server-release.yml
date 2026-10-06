@@ -1,0 +1,235 @@
+name: Publish Signed Server Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing annotated GPG-signed release tag, for example v0.9.0-beta.1
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Verify signed tag and publish server release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      TRUSTED_SIGNERS: ${{ vars.INFOMANCER_UPDATE_SIGNERS }}
+      RELEASE_PUBLIC_KEYS: ${{ secrets.INFOMANCER_RELEASE_GPG_PUBLIC_KEYS }}
+    steps:
+      - name: Validate release configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-+][A-Za-z0-9.-]+)?$ ]]; then
+            echo "Release tag does not match InfoMancer's Server release format." >&2
+            exit 1
+          fi
+          if [[ -z "${TRUSTED_SIGNERS//[[:space:]]/}" ]]; then
+            echo "Set repository variable INFOMANCER_UPDATE_SIGNERS to one or more full GPG fingerprints." >&2
+            exit 1
+          fi
+          if [[ -z "${RELEASE_PUBLIC_KEYS//[[:space:]]/}" ]]; then
+            echo "Set Actions secret INFOMANCER_RELEASE_GPG_PUBLIC_KEYS to the ASCII-armored trusted public key(s)." >&2
+            exit 1
+          fi
+
+      - name: Check out repository history and tags
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Fetch only the requested release tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force --no-tags origin "+refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+
+      - name: Import trusted release public keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$RELEASE_PUBLIC_KEYS" | gpg --batch --import
+
+      - name: Verify annotated tag and trusted signer
+        id: verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag_ref="refs/tags/$RELEASE_TAG"
+          if [[ "$(git cat-file -t "$tag_ref")" != "tag" ]]; then
+            echo "Server releases require an annotated tag; lightweight tags are rejected." >&2
+            exit 1
+          fi
+
+          verification_file="$RUNNER_TEMP/tag-verification.txt"
+          if ! git verify-tag --raw "$tag_ref" >"$RUNNER_TEMP/tag-verification.stdout" 2>"$verification_file"; then
+            cat "$verification_file" >&2
+            echo "Tag signature verification failed." >&2
+            exit 1
+          fi
+
+          tag_object_file="$RUNNER_TEMP/tag-object.txt"
+          git cat-file -p "$tag_ref" >"$tag_object_file"
+          embedded_tag="$(python - "$tag_object_file" <<'PY'
+          import sys
+
+          names = []
+          with open(sys.argv[1], encoding="utf-8") as stream:
+              for raw_line in stream:
+                  line = raw_line.rstrip("\n")
+                  if not line:
+                      break
+                  if line.startswith("tag "):
+                      names.append(line[4:])
+          if len(names) != 1 or not names[0]:
+              raise SystemExit(
+                  "Annotated release tag object must contain exactly one embedded tag name."
+              )
+          print(names[0])
+          PY
+          )"
+          if [[ "$embedded_tag" != "$RELEASE_TAG" ]]; then
+            echo "Signed tag object name '$embedded_tag' does not match requested ref '$RELEASE_TAG'." >&2
+            exit 1
+          fi
+
+          verified_signer="$(python - "$verification_file" "$TRUSTED_SIGNERS" <<'PY'
+          import re
+          import sys
+
+          path, configured = sys.argv[1:]
+          fingerprint = re.compile(r"^(?:[0-9A-F]{40}|[0-9A-F]{64})$")
+
+          def normalize(value: str) -> str:
+              value = re.sub(r"[\s:]", "", value.strip()).upper()
+              if value.startswith("0X"):
+                  value = value[2:]
+              if not fingerprint.fullmatch(value):
+                  raise SystemExit(
+                      "INFOMANCER_UPDATE_SIGNERS must contain only complete 40- or 64-character OpenPGP fingerprints."
+                  )
+              return value
+
+          trusted = {
+              normalize(value)
+              for value in re.split(r"[,;\s]+", configured)
+              if value.strip()
+          }
+          observed = []
+          with open(path, encoding="utf-8") as stream:
+              for line in stream:
+                  marker = "[GNUPG:] VALIDSIG "
+                  if not line.startswith(marker):
+                      continue
+                  fields = line[len(marker):].split()
+                  if not fields or not fingerprint.fullmatch(fields[0].upper()):
+                      continue
+                  signing = fields[0].upper()
+                  primary = (
+                      fields[-1].upper()
+                      if fingerprint.fullmatch(fields[-1].upper())
+                      else None
+                  )
+                  candidates = [signing] + (
+                      [primary] if primary and primary != signing else []
+                  )
+                  observed.extend(candidates)
+                  for candidate in candidates:
+                      if candidate in trusted:
+                          print(candidate)
+                          raise SystemExit(0)
+          raise SystemExit(
+              "Valid signature was not made by an allowlisted release key. "
+              f"Observed: {', '.join(sorted(set(observed))) or 'no VALIDSIG fingerprint'}"
+          )
+          PY
+          )"
+
+          commit="$(git rev-parse --verify "$tag_ref^{commit}")"
+          git fetch --no-tags origin "testing/0.9-alpha:refs/remotes/origin/testing/0.9-alpha"
+          if ! git merge-base --is-ancestor "$commit" refs/remotes/origin/testing/0.9-alpha; then
+            echo "The signed release commit is not reachable from testing/0.9-alpha." >&2
+            exit 1
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "signer=$verified_signer" >> "$GITHUB_OUTPUT"
+
+      - name: Check out verified release commit
+        shell: bash
+        run: git checkout --detach "${{ steps.verify.outputs.commit }}"
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Require tag and application versions to match
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_version="${RELEASE_TAG#v}"
+          app_version="$(python -c 'from scripts.build_release import application_version; print(application_version())')"
+          if [[ "$app_version" != "$release_version" ]]; then
+            echo "Signed tag version $release_version does not match application version $app_version." >&2
+            exit 1
+          fi
+          echo "RELEASE_VERSION=$release_version" >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run full server test suite
+        run: python -m unittest discover -s tests -v
+
+      - name: Build server release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/build_release.py --version "$RELEASE_VERSION"
+
+      - name: Require an unused GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub release $RELEASE_TAG already exists; refusing to overwrite an immutable release." >&2
+            exit 1
+          fi
+
+      - name: Publish immutable server release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          prerelease=()
+          if [[ "$RELEASE_VERSION" == *-* ]]; then
+            prerelease=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" \
+            "dist/InfoMancer-Server-$RELEASE_VERSION.zip" \
+            "dist/SHA256SUMS.txt" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "InfoMancer $RELEASE_VERSION" \
+            --generate-notes \
+            "${prerelease[@]}"
+
+      - name: Summarize verified release identity
+        shell: bash
+        run: |
+          {
+            echo "### Signed server release"
+            echo "- Tag: \`$RELEASE_TAG\`"
+            echo "- Commit: \`${{ steps.verify.outputs.commit }}\`"
+            echo "- Trusted signer: \`${{ steps.verify.outputs.signer }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
