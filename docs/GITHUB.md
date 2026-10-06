@@ -67,13 +67,18 @@ Then run the **Publish Signed Server Release** workflow with that exact tag.
 The workflow requires:
 
 - repository variable `INFOMANCER_UPDATE_SIGNERS` containing one or more full
-  trusted OpenPGP fingerprints; and
+  trusted OpenPGP fingerprints;
 - Actions secret `INFOMANCER_RELEASE_GPG_PUBLIC_KEYS` containing the matching
-  ASCII-armored public key or keys.
+  ASCII-armored public key or keys;
+- Actions secret `INFOMANCER_RULESET_AUDIT_TOKEN` containing a fine-grained
+  token scoped to this repository with **Administration: Read-only**; and
+- the active no-bypass tag ruleset from
+  `deploy/protect-release-tags.ruleset.json`.
 
 The workflow rejects lightweight tags, invalid signatures, untrusted signers,
-signed-tag aliases, commits not reachable from `testing/0.9-alpha`, tags that
-do not match `APP_VERSION`, and an already-existing GitHub release. It builds
+signed-tag aliases, mutable or bypassable release-tag protection, commits not
+reachable from `testing/0.9-alpha`, tags that do not match `APP_VERSION`,
+and an already-existing GitHub release. It builds
 `InfoMancer-Server-VERSION.zip` plus `SHA256SUMS.txt` only after verification.
 
 See `docs/UPDATES_ADVANCED.md` for updater-side trust configuration. Desktop
