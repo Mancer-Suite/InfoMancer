@@ -20,7 +20,6 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag }}
       TRUSTED_SIGNERS: ${{ vars.INFOMANCER_UPDATE_SIGNERS }}
       RELEASE_PUBLIC_KEYS: ${{ secrets.INFOMANCER_RELEASE_GPG_PUBLIC_KEYS }}
-      RULESET_AUDIT_TOKEN: ${{ secrets.INFOMANCER_RULESET_AUDIT_TOKEN }}
     steps:
       - name: Validate release configuration
         shell: bash
@@ -38,17 +37,17 @@ jobs:
             echo "Set Actions secret INFOMANCER_RELEASE_GPG_PUBLIC_KEYS to the ASCII-armored trusted public key(s)." >&2
             exit 1
           fi
+      - name: Require immutable release-tag protection
+        shell: bash
+        env:
+          RULESET_AUDIT_TOKEN: ${{ secrets.INFOMANCER_RULESET_AUDIT_TOKEN }}
+        run: |
+          set -euo pipefail
           if [[ -z "${RULESET_AUDIT_TOKEN//[[:space:]]/}" ]]; then
             echo "Set Actions secret INFOMANCER_RULESET_AUDIT_TOKEN to a fine-grained token with read-only repository Administration permission." >&2
             exit 1
           fi
-
-      - name: Require immutable release-tag protection
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.INFOMANCER_RULESET_AUDIT_TOKEN }}
-        run: |
-          set -euo pipefail
+          export GH_TOKEN="$RULESET_AUDIT_TOKEN"
           ruleset_id="$(
             gh api "repos/$GITHUB_REPOSITORY/rulesets" --paginate |
               jq -r '.[] | select(.name == "Protect release tags" and .target == "tag" and .enforcement == "active") | .id' |
