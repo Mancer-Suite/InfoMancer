@@ -75,9 +75,10 @@ This outer policy can protect InfoMancer while the application continues using i
 INFOMANCER_PUBLIC_URL=https://infomancer.example.com
 INFOMANCER_TRUSTED_HOSTS=infomancer.example.com
 INFOMANCER_TRUST_CLOUDFLARE_PROXY=true
+INFOMANCER_TRUSTED_PROXY_CIDRS=172.20.0.4/32
 ```
 
-Only enable `INFOMANCER_TRUST_CLOUDFLARE_PROXY` while the origin remains private. It lets local-account installations use the real Cloudflare client IP and HTTPS scheme without trusting arbitrary forwarded headers from direct clients.
+The address above is only an example. Set `INFOMANCER_TRUSTED_PROXY_CIDRS` to the actual socket-peer IP or narrow CIDR used by your reverse proxy. InfoMancer ignores `CF-Connecting-IP` and forwarded HTTPS metadata unless the connection itself comes from that allowlist. If the proxy address is dynamic and you cannot define a suitably narrow range, leave proxy trust disabled; the application will use the socket peer for throttling instead of accepting spoofable forwarded client addresses.
 
 To make Cloudflare the application sign-in authority too, set:
 
