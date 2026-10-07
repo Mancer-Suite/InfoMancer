@@ -185,13 +185,34 @@ class RequestParserAdversarialTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_multipart_csrf_does_not_consume_upload_body(self):
         request, calls = make_request(
             method="POST",
-            headers={"content-type": "multipart/form-data; boundary=test"},
+            headers={
+                "content-type": "multipart/form-data; boundary=test",
+                "content-length": str(512 * 1024 * 1024),
+            },
             body_chunks=[b"large-upload-placeholder"],
         )
         token, replay = await csrf_submission(request)
         self.assertEqual(token, MISSING_CSRF_TOKEN)
         self.assertIsNone(replay)
         self.assertEqual(calls["receive"], 0)
+
+    async def test_valid_multipart_header_allows_streaming_without_prefetch(self):
+        request, calls = make_request(
+            method="POST",
+            headers={
+                "content-type": "multipart/form-data; boundary=test",
+                "content-length": str(512 * 1024 * 1024),
+                "x-csrf-token": "valid-session-token",
+            },
+            body_chunks=[b"chunk-one", b"chunk-two"],
+        )
+        token, replay = await csrf_submission(request)
+        self.assertEqual(token, "valid-session-token")
+        self.assertIsNone(replay)
+        self.assertEqual(calls["receive"], 0)
+        first = await request.receive()
+        self.assertEqual(first["body"], b"chunk-one")
+        self.assertEqual(calls["receive"], 1)
 
 
 if __name__ == "__main__":

@@ -7,8 +7,12 @@
     if (event.defaultPrevented) return;
 
     const csrfInput = form.querySelector('input[name="csrf_token"]');
-    const csrfToken = csrfInput?.value || "";
-    if (!csrfToken) return;
+    const csrfToken = csrfInput?.value || document.body?.dataset.csrfToken || "";
+    if (!csrfToken) {
+      event.preventDefault();
+      window.alert("InfoMancer could not verify this upload form. Refresh the page and try again.");
+      return;
+    }
 
     const submitter = event.submitter;
     const actionUrl = new URL(submitter?.formAction || form.action || window.location.href, window.location.href);
