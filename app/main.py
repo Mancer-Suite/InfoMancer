@@ -1629,21 +1629,37 @@ def change_account_password(
             "local_password": settings.auth_mode == "local",
         }, status_code=400)
     try:
-        auth_service.change_password(request.state.user.id, current_password, new_password)
-        auth_service.revoke_user_sessions(
-            request.state.user.id, except_session=request.state.auth_session.id
+        user_id = request.state.user.id
+        rotation = auth_service.change_password(
+            user_id, current_password, new_password, request=request
         )
-        record_security_event(
-            "Account password was changed and other sessions were revoked.",
-            context={"operation": "password_changed"},
-            user_id=request.state.user.id,
-        )
+        if rotation is None:
+            raise AuthenticationError("The replacement session could not be created.")
+        new_session_token, new_session = rotation
+        request.state.user = new_session.user
+        request.state.auth_session = new_session
+        # Credential/session rotation has already committed at this point.
+        # Audit logging is intentionally best-effort so a secondary logging
+        # failure can never prevent delivery of the newly persisted session.
+        try:
+            record_security_event(
+                "Account password was changed; prior sessions were revoked and the current browser received a fresh session.",
+                context={"operation": "password_changed", "session_rotated": True},
+                user_id=user_id,
+            )
+        except Exception:
+            pass
     except AuthenticationError as exc:
         return templates.TemplateResponse(request, "account_security.html", {
             "message": "", "error": str(exc),
             "local_password": settings.auth_mode == "local",
         }, status_code=400)
-    return redirect("/account/security", "Password changed; other sessions were signed out")
+    response = redirect(
+        "/account/security",
+        "Password changed; previous sessions were signed out",
+    )
+    set_session_cookie(response, request, new_session_token)
+    return response
 
 
 @app.get("/account/sessions", response_class=HTMLResponse)

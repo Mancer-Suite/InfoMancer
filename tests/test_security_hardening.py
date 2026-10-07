@@ -148,9 +148,13 @@ class ForwardedHeaderTests(unittest.TestCase):
             self.assertFalse(secure_cookie_for(lan, settings))
             self.assertTrue(secure_cookie_for(public, settings))
 
-    def test_verified_cloudflare_request_can_use_cloudflare_headers(self):
+    def test_verified_cloudflare_request_can_use_headers_only_from_trusted_peer(self):
         with tempfile.TemporaryDirectory() as temporary:
             settings = settings_for(Path(temporary), auth_mode="cloudflare")
+            settings = Settings(**{
+                **settings.__dict__,
+                "trusted_proxy_cidrs": ("172.20.0.4/32",),
+            })
             request = request_with(
                 headers={
                     "cf-connecting-ip": "203.0.113.50",
@@ -161,6 +165,22 @@ class ForwardedHeaderTests(unittest.TestCase):
             self.assertEqual(request_ip(request, settings), "203.0.113.50")
             self.assertTrue(secure_cookie_for(request, settings))
 
+    def test_verified_cloudflare_claim_does_not_override_untrusted_socket_peer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            settings = settings_for(Path(temporary), auth_mode="cloudflare")
+            settings = Settings(**{
+                **settings.__dict__,
+                "trusted_proxy_cidrs": ("172.20.0.4/32",),
+            })
+            request = request_with(
+                headers={
+                    "cf-connecting-ip": "203.0.113.50",
+                    "x-forwarded-proto": "https",
+                },
+                client="172.20.0.99", claims={"sub": "verified-user"},
+            )
+            self.assertEqual(request_ip(request, settings), "172.20.0.99")
+
     def test_local_auth_can_explicitly_trust_private_cloudflare_proxy(self):
         with tempfile.TemporaryDirectory() as temporary:
             settings = settings_for(Path(temporary), auth_mode="local")
@@ -169,6 +189,7 @@ class ForwardedHeaderTests(unittest.TestCase):
                 "public_url": "https://media.example.test",
                 "trusted_hosts": ("media.example.test",),
                 "trust_cloudflare_proxy": True,
+                "trusted_proxy_cidrs": ("172.20.0.4/32",),
             })
             request = request_with(
                 headers={
@@ -214,6 +235,10 @@ class ForwardedHeaderTests(unittest.TestCase):
     def test_invalid_cloudflare_ip_falls_back_to_socket_peer(self):
         with tempfile.TemporaryDirectory() as temporary:
             settings = settings_for(Path(temporary), auth_mode="cloudflare")
+            settings = Settings(**{
+                **settings.__dict__,
+                "trusted_proxy_cidrs": ("172.20.0.4/32",),
+            })
             request = request_with(
                 headers={"cf-connecting-ip": "not-an-ip"},
                 client="172.20.0.4", claims={"sub": "verified-user"},

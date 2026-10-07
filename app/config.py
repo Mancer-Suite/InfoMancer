@@ -35,6 +35,7 @@ class Settings:
     public_url: str = ""
     trusted_hosts: tuple[str, ...] = ()
     trust_cloudflare_proxy: bool = False
+    trusted_proxy_cidrs: tuple[str, ...] = ()
 
     @property
     def minimum_password_length(self) -> int:
@@ -68,6 +69,11 @@ def get_settings() -> Settings:
         for value in os.getenv("INFOMANCER_TRUSTED_HOSTS", "").split(",")
         if value.strip()
     )
+    trusted_proxy_cidrs = tuple(
+        value.strip()
+        for value in os.getenv("INFOMANCER_TRUSTED_PROXY_CIDRS", "").split(",")
+        if value.strip()
+    )
     return Settings(
         database=db,
         tvdb_api_key=os.getenv("TVDB_API_KEY", "").strip(),
@@ -89,4 +95,5 @@ def get_settings() -> Settings:
         trust_cloudflare_proxy=_enabled(
             os.getenv("INFOMANCER_TRUST_CLOUDFLARE_PROXY", "")
         ),
+        trusted_proxy_cidrs=trusted_proxy_cidrs,
     )
