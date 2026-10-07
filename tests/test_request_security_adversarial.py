@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from starlette.requests import Request
+from starlette.responses import Response
 
+import app.main as app_main
 from app.auth import request_ip, secure_cookie_for
 from app.request_security import (
     MISSING_CSRF_TOKEN,
@@ -12,6 +15,7 @@ from app.request_security import (
     browser_request_is_same_origin,
     csrf_submission,
     host_is_allowed,
+    LOCAL_CSRF_COOKIE,
 )
 
 
@@ -185,13 +189,92 @@ class RequestParserAdversarialTests(unittest.IsolatedAsyncioTestCase):
     async def test_missing_multipart_csrf_does_not_consume_upload_body(self):
         request, calls = make_request(
             method="POST",
-            headers={"content-type": "multipart/form-data; boundary=test"},
+            headers={
+                "content-type": "multipart/form-data; boundary=test",
+                "content-length": str(512 * 1024 * 1024),
+            },
             body_chunks=[b"large-upload-placeholder"],
         )
         token, replay = await csrf_submission(request)
         self.assertEqual(token, MISSING_CSRF_TOKEN)
         self.assertIsNone(replay)
         self.assertEqual(calls["receive"], 0)
+
+    async def test_valid_multipart_header_allows_streaming_without_prefetch(self):
+        request, calls = make_request(
+            method="POST",
+            headers={
+                "content-type": "multipart/form-data; boundary=test",
+                "content-length": str(512 * 1024 * 1024),
+                "x-csrf-token": "valid-session-token",
+            },
+            body_chunks=[b"chunk-one", b"chunk-two"],
+        )
+        token, replay = await csrf_submission(request)
+        self.assertEqual(token, "valid-session-token")
+        self.assertIsNone(replay)
+        self.assertEqual(calls["receive"], 0)
+        first = await request.receive()
+        self.assertEqual(first["body"], b"chunk-one")
+        self.assertEqual(calls["receive"], 1)
+
+class MultipartMiddlewareIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def _assert_tokenless_multipart_is_blocked_before_body_read(
+        self, *, auth_mode: str,
+    ):
+        headers = {
+            "content-type": "multipart/form-data; boundary=test",
+            "content-length": str(512 * 1024 * 1024),
+        }
+        fake_auth = Mock()
+        configured = settings(auth_mode=auth_mode)
+        if auth_mode == "disabled":
+            headers["cookie"] = f"{LOCAL_CSRF_COOKIE}=known-local-csrf"
+        else:
+            headers["cookie"] = "infomancer_session=existing-session"
+            user = SimpleNamespace(id=42, force_password_change=False)
+            fake_auth.user_count.return_value = 1
+            fake_auth.session_from_token.return_value = SimpleNamespace(
+                id=7, user=user, csrf_token="expected-session-csrf"
+            )
+
+        request, calls = make_request(
+            method="POST",
+            headers=headers,
+            body_chunks=[b"first-upload-chunk", b"second-upload-chunk"],
+        )
+        request.scope["path"] = "/multipart-integration-test"
+        request.scope["raw_path"] = b"/multipart-integration-test"
+        downstream = {"calls": 0}
+
+        async def call_next(_request):
+            downstream["calls"] += 1
+            await _request.body()
+            return Response("downstream reached", status_code=200)
+
+        def simple_auth_error(_request, status, _title, _detail):
+            return Response("blocked", status_code=status, media_type="text/plain")
+
+        with (
+            patch.object(app_main, "settings", configured),
+            patch.object(app_main, "auth_service", fake_auth),
+            patch.object(app_main, "auth_error_response", simple_auth_error),
+        ):
+            response = await app_main.authentication_middleware(request, call_next)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(calls["receive"], 0)
+        self.assertEqual(downstream["calls"], 0)
+
+    async def test_disabled_auth_blocks_tokenless_multipart_before_streaming(self):
+        await self._assert_tokenless_multipart_is_blocked_before_body_read(
+            auth_mode="disabled"
+        )
+
+    async def test_local_auth_blocks_tokenless_multipart_before_streaming(self):
+        await self._assert_tokenless_multipart_is_blocked_before_body_read(
+            auth_mode="local"
+        )
 
 
 if __name__ == "__main__":

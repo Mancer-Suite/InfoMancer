@@ -1,5 +1,6 @@
 const { test, expect } = require('@playwright/test');
 const { execFileSync } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const tokenUrl = process.env.INFOMANCER_E2E_TOKEN_URL || 'http://127.0.0.1:8787';
@@ -137,6 +138,53 @@ async function attach(pageOrLocator, testInfo, name, fullPage = false) {
   const body = await pageOrLocator.screenshot(fullPage ? { fullPage: true } : {});
   await testInfo.attach(name, { body, contentType: 'image/png' });
 }
+
+
+test('tokenless multipart helper cancels submit before fetch or native navigation', async ({ page }) => {
+  await page.goto(sandboxUrl + '/health');
+  const beforeUrl = page.url();
+  await page.setContent(
+    '<!doctype html><html><body>' +
+    '<form id="upload" method="post" action="/should-not-submit" enctype="multipart/form-data">' +
+    '<input type="file" name="upload">' +
+    '<button id="submit" type="submit">Upload</button>' +
+    '</form></body></html>'
+  );
+  const helper = fs.readFileSync(
+    path.join(process.cwd(), '..', 'app', 'static', 'multipart-submit.js'),
+    'utf8',
+  );
+  await page.addScriptTag({ content: helper });
+  await page.evaluate(() => {
+    window.__multipartTest = {
+      fetchCalls: 0,
+      alertCalls: 0,
+      submitObserved: false,
+      submitDefaultPrevented: false,
+    };
+    window.fetch = async () => {
+      window.__multipartTest.fetchCalls += 1;
+      throw new Error('fetch must not run for tokenless multipart');
+    };
+    window.alert = () => {
+      window.__multipartTest.alertCalls += 1;
+    };
+    document.addEventListener('submit', (event) => {
+      window.__multipartTest.submitObserved = true;
+      window.__multipartTest.submitDefaultPrevented = event.defaultPrevented;
+    });
+  });
+
+  await page.locator('#submit').click({ noWaitAfter: true });
+  await page.waitForTimeout(150);
+
+  expect(page.url()).toBe(beforeUrl);
+  const state = await page.evaluate(() => window.__multipartTest);
+  expect(state.submitObserved).toBe(true);
+  expect(state.submitDefaultPrevented).toBe(true);
+  expect(state.fetchCalls).toBe(0);
+  expect(state.alertCalls).toBe(1);
+});
 
 test.describe('InfoMancer browser acceptance', () => {
   // These tests intentionally mutate persistent disposable servers. Retrying a
