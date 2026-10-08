@@ -40,6 +40,9 @@
   const sidebarToggle = document.getElementById('sidebar-collapse-toggle');
   const sidebarResize = document.getElementById('sidebar-resize-handle');
 
+  // A visually collapsed field must also be absent from keyboard tab order.
+  if (searchInput) searchInput.tabIndex = search?.classList.contains('open') ? 0 : -1;
+
   let searchSuggestionTimer = 0;
   let searchSuggestionController = null;
   let searchRequestVersion = 0;
@@ -70,6 +73,7 @@
   const setSearchOpen = (open, {restoreFocus = false} = {}) => {
     if (!search || !searchToggle || !searchInput) return;
     search.classList.toggle('open', open);
+    searchInput.tabIndex = open ? 0 : -1;
     searchToggle.setAttribute('aria-expanded', String(open));
     updateSearchToggleLabel();
     if (!open) {
