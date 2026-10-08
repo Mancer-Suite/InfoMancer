@@ -50,7 +50,7 @@
         <input id="global-search-input" name="q" value="{{ request.query_params.get('q', '') if request.url.path == '/library' else '' }}" placeholder="Search the library" autocomplete="off" aria-autocomplete="list" aria-controls="global-search-suggestions">
         <button type="button" class="global-search-history" id="global-search-history" aria-label="Show recent searches" title="Recent searches"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5M12 7v5l3 2"></path></svg></button>
         <div class="global-search-suggestions" id="global-search-suggestions" role="listbox" hidden></div>
-        <button type="button" class="global-search-toggle" id="global-search-toggle" aria-label="Open library search" aria-expanded="false">
+        <button type="button" class="global-search-toggle" id="global-search-toggle" aria-label="Open library search" aria-controls="global-search-input" aria-expanded="false">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="m16 16 4 4"></path></svg>
         </button>
       </form>
