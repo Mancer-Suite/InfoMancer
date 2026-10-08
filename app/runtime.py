@@ -147,14 +147,18 @@ class RuntimeLease:
                     except (TypeError, ValueError):
                         fresh = False
 
-                    local_pid = _local_owner_pid(str(row["owner"]))
-                    if local_pid is not None:
-                        for _ in range(10):
-                            if not _process_is_alive(local_pid):
-                                fresh = False
-                                break
-                            fresh = True
-                            time.sleep(0.05)
+                    # A PID can be reused after a container or process restarts.
+                    # Its liveness may shorten a *fresh* lease when the former
+                    # owner has died, but must never revive an expired heartbeat.
+                    # The kernel lock is the authoritative live-owner guard.
+                    if fresh:
+                        local_pid = _local_owner_pid(str(row["owner"]))
+                        if local_pid is not None:
+                            for _ in range(10):
+                                if not _process_is_alive(local_pid):
+                                    fresh = False
+                                    break
+                                time.sleep(0.05)
 
                     if fresh:
                         raise RuntimeLeaseError(
