@@ -47,6 +47,31 @@ class RuntimeLeaseTests(unittest.TestCase):
         self.assertEqual(row["owner"], "second")
         second.release()
 
+    def test_expired_container_lease_with_reused_pid_is_reclaimed(self):
+        # Docker preserves a container hostname while new processes can again
+        # start as PID 1. The PID being live cannot revive an expired lease.
+        host = socket.gethostname().replace(":", "_")
+        previous_owner = f"server:{host}:1:previous-container-process"
+        expired = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        with self.database.connect() as conn:
+            conn.execute(
+                "INSERT INTO runtime_leases(name,owner,heartbeat_at) VALUES (?,?,?)",
+                ("web-runtime", previous_owner, expired),
+            )
+
+        with patch("app.runtime._process_is_alive", return_value=True) as pid_probe:
+            replacement = RuntimeLease(
+                self.database, owner="replacement", ttl_seconds=90,
+            )
+            replacement.acquire()
+        self.addCleanup(replacement.release)
+        pid_probe.assert_not_called()
+        with self.database.connect() as conn:
+            row = conn.execute(
+                "SELECT owner FROM runtime_leases WHERE name='web-runtime'"
+            ).fetchone()
+        self.assertEqual(row["owner"], "replacement")
+
     def test_live_kernel_owner_cannot_be_reclaimed_from_stale_heartbeat(self):
         first = RuntimeLease(self.database, owner="first", ttl_seconds=30)
         second = RuntimeLease(self.database, owner="second", ttl_seconds=30)
