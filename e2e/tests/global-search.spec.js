@@ -85,7 +85,7 @@ test.describe('global search on a narrow touch viewport', () => {
     await input.fill('matrix');
     await page.locator('#outside').tap();
 
-    await expect(search).not.toHaveClass(/\\bopen\\b/);
+    await expect(search).not.toHaveClass('open');
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await expect(input).not.toBeFocused();
     await expect(input).toHaveAttribute('tabindex', '-1');
@@ -141,7 +141,7 @@ test.describe('global search on a narrow touch viewport', () => {
     await page.evaluate(() => window.__suggestions.pending());
 
     await expect(page.locator('#global-search-suggestions')).toBeHidden();
-    await expect(page.locator('#global-search')).not.toHaveClass(/\\bopen\\b/);
+    await expect(page.locator('#global-search')).not.toHaveClass('open');
   });
 
   test('search toggle still submits a populated query', async ({ page }) => {
