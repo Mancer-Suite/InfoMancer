@@ -49,13 +49,34 @@ class ReleaseUiGremlinContracts(unittest.TestCase):
 
     def test_closed_global_search_cannot_leave_focus_or_suggestions_behind(self):
         source = (ROOT / "app/static/app-shell.js").read_text(encoding="utf-8")
+        base = (ROOT / "app/templates/base.html").read_text(encoding="utf-8")
 
-        self.assertIn("const settleClosedSearch = () =>", source)
-        self.assertIn("window.clearTimeout(searchFocusTimer)", source)
+        self.assertIn("const settleClosedSearch = ({restoreFocus = false} = {}) =>", source)
+        self.assertIn("window.clearTimeout(searchSuggestionTimer)", source)
         self.assertIn("searchSuggestions.hidden = true", source)
         self.assertIn("searchSuggestionController?.abort()", source)
         self.assertIn("searchInput.blur()", source)
-        self.assertIn("if (search.classList.contains('open')) searchInput.focus()", source)
+        self.assertIn("searchInput.tabIndex = open ? 0 : -1", source)
+        self.assertIn("searchInput.focus({preventScroll: true})", source)
+        self.assertNotIn("searchFocusTimer", source)
+        self.assertIn('aria-controls="global-search-input"', base)
+
+    def test_global_search_outside_touch_and_escape_close_even_with_query(self):
+        source = (ROOT / "app/static/app-shell.js").read_text(encoding="utf-8")
+
+        self.assertIn("document.addEventListener('pointerdown', dismissSearchOutside)", source)
+        self.assertIn("dismissSearchOutside(event)", source)
+        self.assertIn("setSearchOpen(false, {restoreFocus: true})", source)
+        self.assertNotIn("!searchInput?.value.trim()", source)
+
+    def test_global_search_rejects_stale_suggestions_and_cancels_debounce(self):
+        source = (ROOT / "app/static/app-shell.js").read_text(encoding="utf-8")
+
+        self.assertIn("searchRequestVersion += 1", source)
+        self.assertIn("version !== searchRequestVersion", source)
+        self.assertIn("searchInput.value.trim() !== query", source)
+        self.assertIn("signal: controller.signal", source)
+        self.assertIn("window.setTimeout(updateGlobalSearchSuggestions, 160)", source)
 
     def test_dynamic_post_forms_receive_csrf_at_submit_boundary(self):
         source = (ROOT / "app/static/app-shell.js").read_text(encoding="utf-8")
