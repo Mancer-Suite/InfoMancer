@@ -12,6 +12,7 @@ const fixture = `<!doctype html>
 <style>
   body { font: 16px system-ui; margin: 16px; }
   form { display: flex; gap: 6px; align-items: center; }
+  label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
   #global-search-input { display: none; width: min(180px, 48vw); }
   #global-search.open #global-search-input { display: block; }
   #global-search-history { display: none; }
