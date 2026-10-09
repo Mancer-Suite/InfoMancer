@@ -23,6 +23,19 @@ The durable rules and ownership map are in [DESIGN.md](../DESIGN.md) and [UX.md]
 
 ## Preview
 
+### Interactive review pages
+
+- [Updated design review](design/updated-review.html): page-specific critique and desktop/phone screenshots for 22 routes.
+- [Before-and-after comparison](design/comparison.html): matched top-viewport frames for the ten routes with baseline evidence, plus a system-level comparison and remaining tradeoffs.
+
+These are self-contained, read-only HTML files with embedded images and no network dependencies. Download both into the same folder and open `updated-review.html` in a browser. GitHub's file viewer shows HTML source, not the rendered page. After cloning, you can also serve the folder with `python -m http.server 8793 --bind 127.0.0.1 --directory docs/design`, then visit `http://localhost:8793/updated-review.html`. This is documentation, not the application preview.
+
+The comparison baseline is `deecf5e`, the production UI/search foundation immediately before this polish. The updated screenshots represent `4d8c012`. It is not a comparison against the untouched `testing/0.9-alpha` release. Empty-state captures are identified explicitly and are not evidence for populated workflows. Physical iPhone/Safari remains a manual check.
+
+Review source: `docs/design/build-review.mjs`; regenerate with `node docs/design/build-review.mjs`. The published HTML also archives its embedded screenshots, so regeneration needs no separate image download. To replace evidence, pass a screenshot directory containing `updated/` and `baseline/` subfolders. No disposable account credentials or catalog database are included.
+
+Documentation checks: both generators and inline scripts passed JavaScript syntax checks; all 84 embedded PNG references passed signature, size and viewport-dimension checks; regeneration from the embedded archive passed; `git diff --check` passed. A fresh browser run of these HTML pages was blocked because the previous executable was unavailable and its replacement download returned an invalid archive. This documentation pass does not claim a new browser or responsive acceptance run.
+
 These screenshots use a disposable catalog and illustrative poster fixtures. Those fixtures are not shipped in the application.
 
 ### Dashboard
