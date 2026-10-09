@@ -2,19 +2,29 @@
 
 Status: **evaluation proposal and isolated prototype**, not a replacement for root DESIGN.md or UX.md. Branch `design/theme-redesign-evaluation`, based on `5edc455` from the coherent-dark review branch. No production templates, styles, controllers, account records or filesystem workflows are changed.
 
-## Design recommendation
+## Revision 2: Media workbench
 
-Make InfoMancer a personal archive with a clear utility shell. Artwork carries atmosphere. Navigation, evidence and account settings use one hierarchy, regular spacing and restrained accent color. A theme changes this palette rather than inventing another layout.
+The first study overcorrected toward minimalism: generic typography, no brand lockup and flat surfaces made it feel like a wireframe. This revision evaluates a more authored media workspace. Root DESIGN.md remains the accepted production contract; the larger condensed headings and surface treatment below are an intentional proposal for review, not an already approved global change.
 
-- Keep shared 28–34px page headings, 20px section headings, 16px body text and 44px prominent controls.
-- Simplify the shell into browse, review/operations and account groups. The prototype illustrates this, but does not authorize changing routes or permissions.
-- Put Appearance under the account, accessible to ordinary users, rather than under librarian-only server settings.
-- Give browsing a consistent search/filter/view toolbar and stable poster footprints with 16px gaps. A short last row can have trailing space. Do not distribute that space between posters.
-- Treat operational pages as evidence: labels, timestamps, consequences and actions. Avoid glowing score cards, repeated pills and grandiose assistant copy.
-- Reuse shared panels, tables, fields, buttons, focus and error presentation across routes. Forms size to content; only related comparison cards align in height.
-- Make narrow layouts purposeful: two cover columns, wrapped filters and reachable actions. Keep Inspector an overlay so opening it does not shrink posters.
+- **Identity:** reuse the actual InfoMancer lockup, unmodified. Brand lime remains independent of the customizable action accent.
+- **Type:** Barlow Condensed 600 for 44px desktop / 38px phone headings and 25px section labels; Manrope 400/600 for reading, titles and controls; IBM Plex Mono 400 for technical data. Keep all-caps condensed type to short headings, rather than body text.
+- **Material:** charcoal surfaces with a restrained directional tonal gradient, inset top edge and soft shadow. Depth clarifies shell, pane and file-evidence layers. Lime marks selection, focus and primary actions.
+- **Composition:** Browse gives artwork the full available width. Workbench keeps Library, Inspector and Activity together. Stable cover footprints and 16px horizontal gaps avoid distributed, arbitrary whitespace. Narrow layouts stack the panels with two cover columns.
+- **Coherence:** Library, Review and Appearance share the same shell, heading system, panel edges, fields, controls and theme roles. Themes change the palette, not typography or page geometry.
 
-The SVG/PNG images are **concept illustrations**, not rendered application screenshots. They use synthetic poster artwork, sample content and a simplified shell. The functional HTML is a separate evaluation prototype with Library, Review and Appearance; it does not expose actual catalog operations. Static illustrations show the intended fuller shell, while the prototype navigates only its three implemented screens.
+Open `comparison.html` for the first pass alongside the revised Library, Workbench, Appearance and phone concepts. The `studio-*.png` / `.svg` files are **concept illustrations**, not application screenshots. The older `obsidian.png`, `slate.png`, `ember.png`, `appearance.png` and `mobile.png` remain historical first-pass evidence. Both use sample content; the new artwork is original SVG illustration, not provider artwork or official film posters.
+
+### Trellis reference and adoption proposal
+
+The framework shared earlier was [Trellis](https://trellisui.com/). Its official documentation describes a framework-independent TypeScript core, DOM/custom-element/React adapters, nested docking, tabs, floating panels, focus/zoom, JSON layout persistence and CSS custom-property themes. This is a useful structural reference for InfoMancer's media workspace. It should support the product's identity instead of defining it.
+
+**The prototype does not install Trellis or implement freeform docking.** Its two fixed layouts demonstrate the design choice. Recommended next spike: mount the existing Library, Inspector and Activity controllers as persistent Trellis views using the plain-DOM adapter; verify that a panel move or zoom does not duplicate listeners, reset selection or bypass existing permission and request handling. Provide keyboard-accessible layout actions and a fixed mobile arrangement. Keep Browse available as the simpler mode.
+
+Store versioned layout JSON separately from the allowlisted theme preference. Resetting a layout should not reset the palette or density. For production, use the existing account preference transaction and canonical controllers; do not add competing search or Inspector owners. Map Trellis CSS properties to InfoMancer's semantic tokens. Before adopting a dependency, evaluate its exact version and source-available commercial terms for this product.
+
+### Assets and reproducibility
+
+The wordmark is copied from `app/static/infomancer-lockup.svg`. The study bundles Fontsource 5.3.0 Latin font subsets and their OFL licenses under `fonts/`. WOFF2 assets are embedded in `index.html` so the interactive study has no font-network dependency. TTF equivalents support the illustration renderer. Future product adoption needs the appropriate additional glyph subsets and localized fallbacks; this English evaluation does not establish a multilingual type contract.
 
 ## What the investigation found
 
@@ -85,7 +95,7 @@ Keep migration commits separate from business changes so rollback restores the p
 
 ## Evaluate locally
 
-Open `docs/theme-study/index.html` in a browser. This file is self-contained and uses no external assets. Select Appearance, choose a theme/accent/density, then navigate to Library and Review. Apply persists locally; Discard restores the saved choice; Export downloads the applied allowlisted JSON, not an unsaved draft. Search works on ten sample titles. Browsing and operation examples are not connected to a real backend.
+Open `docs/theme-study/index.html` in a browser. This file is self-contained and uses no external assets. Select Appearance, choose a theme/accent/density, then navigate to Library and Review. Apply persists locally; Discard restores the saved choice; Export downloads the applied allowlisted JSON, not an unsaved draft. Search works on ten sample titles. Click a cover to inspect it, or switch Browse / Workbench. The comparison link opens the before/after concepts. Browsing and operation examples are not connected to a real backend.
 
 Or serve the study folder:
 
@@ -95,8 +105,18 @@ python -m http.server 8793 --bind 127.0.0.1 --directory docs/theme-study
 
 Then open `http://localhost:8793`. If running on Atlas instead of the desktop, use an SSH tunnel, `ssh -L 8793:127.0.0.1:8793 <user>@<atlas-host>`, and open the localhost URL on the desktop. Replace the placeholders with the SSH account and host you normally use.
 
-Regenerate the HTML and SVG concepts with `node docs/theme-study/build.mjs`. Run the dependency-free validation checks with `node docs/theme-study/themes.test.mjs`. PNG concepts are rasterized from SVG with Inkscape. This study requires neither a production catalog nor Docker.
+The committed HTML and PNGs are ready to open. Regeneration requires Node, Inkscape and the bundled TTF fonts installed on the rendering machine. On Linux:
+
+```bash
+mkdir -p ~/.local/share/fonts/infomancer-study
+cp docs/theme-study/fonts/*.ttf ~/.local/share/fonts/infomancer-study/
+fc-cache -f
+node docs/theme-study/build.mjs
+node docs/theme-study/themes.test.mjs
+```
+
+The build produces the self-contained HTML, illustration sources, artwork and PNG concepts. The theme checks require only Node. This study requires neither a production catalog nor Docker.
 
 ## Verification and limits
 
-The branch validates preset text, accent and semantic color contrast, invalid preference recovery, schema allowlisting and black/white action text. JavaScript syntax and regeneration are checked. Concept images are inspected after rasterization. A browser executable is unavailable in this environment, so the functional prototype has not received browser, Safari or responsive acceptance testing; SVG concept rendering does not substitute for it. Production code is unchanged, so prior application test counts are not new evidence for this prototype.
+The branch validates preset text, accent and semantic color contrast, invalid preference recovery, schema allowlisting and black/white action text. JavaScript syntax and regeneration are checked. A LinkeDOM smoke check exercises both layouts, title inspection, search / empty / clear, page navigation, theme apply, invalid-accent rejection, discard and default preview. It passes, but does not verify browser rendering, native controls or keyboard focus behavior. Concept images are inspected after rasterization. The scoped premium static audit reported 14 actionless-button findings: seven ID-based controls in each of the source markup and generated HTML. Each has an explicit listener in `prototype.js`; the auditor does not resolve those bindings. These findings are reviewed limitations of that static check, not a claimed clean strict audit. A browser executable is unavailable in this environment, so the functional prototype has not received browser, Safari or responsive acceptance testing; SVG concept rendering does not substitute for it. Production code is unchanged, so prior application test counts are not new evidence for this prototype.
