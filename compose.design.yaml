@@ -1,0 +1,23 @@
+services:
+  infomancer-design:
+    build:
+      context: .
+      args:
+        INFOMANCER_UID: ${INFOMANCER_UID:-1000}
+        INFOMANCER_GID: ${INFOMANCER_GID:-1000}
+    restart: unless-stopped
+    environment:
+      INFOMANCER_DATABASE: /app/data/infomancer.db
+      INFOMANCER_SECRET: ${INFOMANCER_DESIGN_SECRET:?Set INFOMANCER_DESIGN_SECRET in .env.design}
+      INFOMANCER_AUTH_MODE: local
+      INFOMANCER_SANDBOX: "1"
+      INFOMANCER_COOKIE_SECURE: "false"
+      MEDIA_BROWSE_ROOTS: /media
+    ports:
+      - "${INFOMANCER_DESIGN_BIND_ADDRESS:-127.0.0.1}:8792:8787"
+    volumes:
+      - infomancer_design_data:/app/data
+      - ${INFOMANCER_DESIGN_MEDIA_PATH:-./sandbox-media}:/media:ro
+
+volumes:
+  infomancer_design_data:

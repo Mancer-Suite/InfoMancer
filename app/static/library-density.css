@@ -97,8 +97,9 @@
 
 .library-density-step[aria-pressed="true"],
 .library-density-mobile button[aria-pressed="true"] {
-  background: var(--lime);
-  color: #10140b;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: inset 0 -2px var(--lime);
 }
 
 .library-density-step svg,
@@ -252,4 +253,9 @@
   .cover-size-control.library-density-ready {
     transition: none;
   }
+}
+
+/* Narrow phones keep both view and density controls reachable. */
+@media(max-width:360px){
+  .catalog-tabs > .library-view-toolbar .library-view-controls { flex-wrap:wrap; justify-content:flex-start; }
 }

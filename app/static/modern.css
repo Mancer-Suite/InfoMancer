@@ -22,17 +22,17 @@ h4,
 .brand,
 .stats strong {
   font-family: var(--serif);
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: -.025em;
 }
 
 h1 {
-  letter-spacing: -.045em;
+  letter-spacing: -.025em;
 }
 
 .eyebrow,
 th {
-  letter-spacing: .14em;
+  letter-spacing: .06em;
 }
 
 .panel,
@@ -51,10 +51,8 @@ th {
 .panel,
 .settings-card,
 .result {
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, .014), transparent 42%),
-    var(--surface);
-  box-shadow: 0 14px 36px rgba(0, 0, 0, .08);
+  background: var(--surface);
+  box-shadow: none;
 }
 
 .button,
@@ -84,8 +82,6 @@ button:hover {
 button.primary:hover {
   background: #c4ff4e;
   border-color: #c4ff4e;
-  box-shadow: 0 8px 24px rgba(185, 245, 66, .14);
-  transform: translateY(-1px);
 }
 
 :is(a, button, input, select, textarea, summary):focus-visible {
@@ -126,6 +122,16 @@ textarea:focus {
 .table-wrap {
   border-radius: var(--radius-md);
 }
+
+.button.primary,
+button.primary { background: var(--lime); border-color: var(--lime); color: #10140b; }
+.button:active,
+button:active { border-color: var(--muted); }
+.button,
+button { font-weight: 600; }
+button:disabled,
+.button[aria-disabled="true"] { opacity: .5; }
+textarea { resize: none; min-height: 7rem; }
 
 /* Profile icons use literal vector silhouettes rather than abstract Unicode marks.
    These rules live in the shared late-loading sheet as well as profile.css styling
@@ -377,11 +383,11 @@ html.library-view-ready .library-view-toolbar {
   /* These tiny affordance rules also live in the operational dashboard stylesheet.
      Keeping them here makes alpha builds resilient if that page-specific CSS is cached. */
   body.has-app-sidebar .home-ops-panel-head > a {
-    font-weight: 800;
+    font-weight: 600;
   }
 
   body.has-app-sidebar .home-change-card > b {
-    font-weight: 900;
+    font-weight: 600;
   }
 }
 

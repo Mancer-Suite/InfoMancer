@@ -35,25 +35,26 @@ class Ui08QaContracts(unittest.TestCase):
         self.assertIn("max-width: 100%", css)
         self.assertIn("text-overflow: ellipsis", css)
 
-    def test_selected_cover_frame_moves_with_card_and_matches_poster_shape(self):
+    def test_selected_cover_frame_stays_with_card_and_matches_poster_shape(self):
         css = (STATIC / "review.css").read_text(encoding="utf-8")
         self.assertIn(".cover-card.workspace-selected::after", css)
         self.assertIn(".cover-card:hover {", css)
-        self.assertIn("transform: translateY(-4px)", css)
+        self.assertIn("transform: none", css)
         self.assertIn("border-radius: var(--im-radius-md) var(--im-radius-md) 0 0", css)
         self.assertIn(".cover-card:hover .cover-art", css)
         self.assertIn("transform: none", css)
 
     def test_library_readability_pass_uses_wider_canvas_and_larger_type(self):
         css = (STATIC / "review.css").read_text(encoding="utf-8")
-        self.assertIn("--text: #f5f7fa", css)
-        self.assertIn("--muted: #9ba9b8", css)
-        self.assertIn("font-size: 16px", css)
+        base = (STATIC / "app.css").read_text(encoding="utf-8")
+        self.assertIn("--text:#f5f7fa", base)
+        self.assertIn("--muted:#9ba9b8", base)
+        self.assertIn("font:16px/1.5", base)
         self.assertIn("main.shell:has(> .catalog-tabs)", css)
         self.assertIn("max-width: 1700px", css)
         self.assertIn("max-width: 1840px", css)
         self.assertIn(".cover-card-link > strong", css)
-        self.assertIn("font-size: 15px", css)
+        self.assertIn("font-size: 14px", css)
         self.assertIn(".cover-card-meta", css)
         self.assertIn("font-size: 12.5px", css)
         self.assertIn(".library-table .title-link", css)

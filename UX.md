@@ -1,6 +1,6 @@
 # InfoMancer interaction contract
 
-Status: Phase 1 UX companion to [DESIGN.md](DESIGN.md). Existing controllers are canonical; this document records expected behavior rather than introducing new UI state infrastructure.
+Status: UX companion to [DESIGN.md](DESIGN.md). Existing controllers are canonical; this document records expected behavior rather than introducing new UI state infrastructure.
 
 ## Ownership
 
@@ -33,3 +33,23 @@ Follow [AGENTS.md](AGENTS.md): `app-shell.js` owns global search/site menu/sideb
 ## Acceptance evidence
 
 Add regression tests to the existing Python contracts and Playwright suite for behavioral changes. Test both a fresh empty query and a populated query, input interruption/abort, outside touch, Escape, and successive results arriving out of order. Screenshots are required before broader visual surface migrations. Mobile WebKit on a physical iPhone or Safari device remains an explicit manual acceptance gate for the reported freeze; Chromium emulation alone is insufficient.
+
+
+## Canonical UI Map
+
+| Capability | Canonical owner | Source of truth | Allowed variants | Verification |
+| --- | --- | --- | --- | --- |
+| Navigation and search | `app-shell.js`, `header.css` | Existing search/sidebar state | Sidebar, compact rail, mobile menu | Search Playwright tests and responsive review |
+| Library view and density | `library-surface-lazy.js`, `library-density.js` | Persisted user choice | List, covers, established density modes | Browser geometry and persistence checks |
+| Inspector | `workspace-core.js`, `workspace.css` | Selected title and lifecycle | Movie and TV content | Density stays fixed while drawer opens |
+| Forms | Server templates, existing route/controller | Native constraint validation, CSRF and server rules | Existing field/error flows | Existing Python contracts; no validation migration |
+| Selection | `library-controller.js`, `library-selection.css` | Selected title IDs | Single and bulk | Existing selection regressions |
+| Select and date controls | Native HTML controls | Browser/OS control behavior | Existing authored menus stay with their owner | Native keyboard semantics retained |
+| Dialogs and feedback | `workspace-ui-core.js`, `workspace-ui.css` | Existing Workspace lifecycle | Confirmation, drawer, toast | Focus return and existing regression suite |
+| Scrollbar | `app.css` | Shared thumb/track tokens | Native forced-colors; existing intentionally hidden strips | Standards and WebKit rules; high-contrast inspection |
+
+## Visual refinement boundaries
+
+The coherent-dark pass changes CSS, a dashboard label/timestamp treatment, and the logo viewBox. It does not add a state controller or replace existing form validation. Browser/OS select, date, and upload controls remain native; their native popup appearance is an intentional compatibility choice. Existing authored menus and dialogs retain their current controllers.
+
+Full-project static auditing still flags legacy validation, listener-backed buttons, and a few unrelated controls. These are recorded in the design review; they are not evidence that visual changes authorize a behavior migration. Review those separately against the server contracts before changing them.

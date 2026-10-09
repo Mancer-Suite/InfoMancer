@@ -33,13 +33,13 @@ class BetaThreePolishTests(unittest.TestCase):
         self.assertIn("No result", movie)
         self.assertIn("Try manual search", movie)
 
-    def test_long_poster_titles_use_fixed_three_line_slot(self):
+    def test_long_poster_titles_use_fixed_two_line_slot(self):
         css = (ROOT / "app/static/display-accessibility.css").read_text(encoding="utf-8")
         script = (ROOT / "app/static/password-visibility.js").read_text(encoding="utf-8")
         self.assertIn(".cover-card-link > strong", css)
         self.assertIn(".home-recent-link > strong", css)
-        self.assertIn("-webkit-line-clamp: 3", css)
-        self.assertIn("min-height: 3.9em", css)
+        self.assertIn("-webkit-line-clamp: 2", css)
+        self.assertIn("min-height: 2.7em", css)
         self.assertIn("titleNode.title = fullTitle", script)
 
 

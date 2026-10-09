@@ -247,8 +247,8 @@ button:disabled {
   }
 
   body.has-app-sidebar .brand-lockup {
-    width: min(184px, calc(100% - 74px)) !important;
-    max-width: calc(100% - 74px) !important;
+    width: min(170px, calc(100% - 16px)) !important;
+    max-width: calc(100% - 16px) !important;
   }
 
   body.has-app-sidebar .site-menu {

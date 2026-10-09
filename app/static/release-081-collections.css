@@ -123,21 +123,18 @@
   margin-bottom: 12px;
 }
 
-/* library.css still has a legacy .collection-card:hover .collection-art rule used by
-   older/custom Collection surfaces. The picker link also carries collection-card,
-   so that later rule would otherwise override Library's -4px cover-card movement
-   with -2px. Match Library's exact hover values here without adding a focus-held
-   state or a second synthetic border owner. */
+/* The picker link shares collection-card. Keep its hover treatment aligned
+   with the stationary Library artwork and its single border owner. */
 .collection-picker-card .collection-card:hover .collection-art {
-  transform: translateY(-4px);
+  transform: none;
   border-color: var(--lime);
-  box-shadow: 0 15px 34px rgba(0, 0, 0, .42);
+  box-shadow: none;
 }
 
 /* The action container itself paints nothing. Its dark veil is an inset pseudo-layer,
    so there is physically no dark paint on the one-pixel perimeter owned by the real
    artwork border. The menu remains above the inset veil, and both container and art
-   keep the same Library -4px motion. */
+   stay aligned with the stationary Library artwork. */
 .collection-picker-card .cover-card-actions {
   z-index: 30;
   box-sizing: border-box;
@@ -157,7 +154,7 @@
 }
 
 .collection-picker-card:hover .cover-card-actions {
-  transform: translateY(-4px) !important;
+  transform: none !important;
 }
 
 .collection-picker-card .cover-row-menu {

@@ -144,14 +144,14 @@ body:not(.library-multi-selection) .library-display-toolbar.library-selection-to
    gutter so selected and unselected cards keep identical geometry. */
 #cover-library .cover-card-link > strong {
   box-sizing: border-box;
-  display: block;
+  display: -webkit-box;
   width: 100%;
-  padding: 8px 8px 0;
+  padding: 0 4px;
 }
 #cover-library .cover-card-meta {
   box-sizing: border-box;
   width: 100%;
-  padding: 3px 8px 8px;
+  padding: 0 4px 4px;
 }
 
 /* A missing poster used to remove an entire grid cell from the Sort Titles row,

@@ -13,7 +13,7 @@
     <div>
       <p class="eyebrow">REVIEW WORKSPACE</p>
       <h1>Review</h1>
-      <p>One queue for the things InfoMancer thinks deserve a decision. Open an item to see the evidence, then act without losing your place.</p>
+      <p>Review findings and rename proposals. Open an item to see the evidence and available actions.</p>
     </div>
     <div class="review-page-actions">
       {% if current_user.is_librarian %}
@@ -95,7 +95,7 @@
     {% else %}
     <div class="review-empty-state">
       <strong>No review items match these filters.</strong>
-      <p>{% if filters.status == 'active' %}That is a good sign. Clear filters or refresh analysis if you expected something here.{% else %}Try another review status or clear the current filters.{% endif %}</p>
+      <p>{% if filters.status == 'active' %}Clear filters or refresh analysis to check for new findings.{% else %}Try another review status or clear the current filters.{% endif %}</p>
     </div>
     {% endfor %}
     <div class="review-empty-state" data-review-empty hidden><strong>This queue is clear.</strong><p>The remaining visible items were handled without leaving the Review workspace.</p></div>

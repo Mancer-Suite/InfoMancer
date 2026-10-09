@@ -110,7 +110,7 @@ class ReviewWorkspaceContractTests(unittest.TestCase):
         self.assertIn("X-CSRF-Token", ui)
         self.assertIn('input[name="csrf_token"]', ui)
         self.assertIn("workspace-drawer", styles)
-        self.assertIn("top: 50%", styles)
+        self.assertIn(".brand-lockup { transform: translateY(-7px)", styles)
 
 
 if __name__ == "__main__":

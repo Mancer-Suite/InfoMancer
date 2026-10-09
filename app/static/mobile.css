@@ -547,7 +547,7 @@
 
   body.has-app-sidebar .media-dossier .detail-page-head .detail-copy h1 {
     margin-top: 0;
-    font-size: clamp(27px, 7.8vw, 36px);
+    font-size: var(--page-title-size);
   }
 
   body.has-app-sidebar .media-dossier .title-hero-aside {

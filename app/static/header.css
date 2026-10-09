@@ -382,7 +382,7 @@
      * deliberately live inside the header markup but are fixed to the viewport,
      * so allowing that containing block pins all three into this 68px strip.
      */
-    background: #0a0f15;
+    background: var(--bg);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -397,7 +397,7 @@
     padding: 0 22px;
     border-right: 1px solid var(--line);
     border-bottom: 1px solid var(--line);
-    background: #0a0f15;
+    background: var(--bg);
     overflow: hidden;
     transition: width .34s cubic-bezier(.22, 1, .36, 1), padding .34s cubic-bezier(.22, 1, .36, 1);
   }
@@ -501,9 +501,7 @@
     left: 0;
     width: var(--app-sidebar-width, 258px);
     border-right: 1px solid var(--line);
-    background:
-      radial-gradient(circle at 30% 82%, rgba(185, 245, 66, .055), transparent 26%),
-      linear-gradient(180deg, #0b1118, #090e14);
+    background: var(--bg);
     overflow: hidden;
     transition: width .34s cubic-bezier(.22, 1, .36, 1), box-shadow .34s ease;
   }
@@ -614,8 +612,8 @@
   }
 
   body.has-app-sidebar .account-summary-copy strong {
-    font-size: 16px;
-    letter-spacing: -0.015em;
+    font-size: 14px;
+    letter-spacing: 0;
     line-height: 1.05;
   }
 

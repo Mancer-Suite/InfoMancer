@@ -8,7 +8,7 @@
       <p class="eyebrow">TITLE-LEVEL REVIEW</p>
       <h2 id="titles-needing-attention-title">Titles needing attention</h2>
     </div>
-    <p>These are the lowest title health scores from the latest complete title snapshot. Start here when you want the shortest path to the titles with the most significant recorded findings.</p>
+    <p>Lowest title health scores from the latest complete snapshot.</p>
   </header>
   {% if not attention_snapshot_current %}<p class="mie-score-note">A newer analysis exists than these title snapshots. Refresh analysis before treating these title scores as current.</p>{% endif %}
   <div class="mie-score-grid">
@@ -21,7 +21,7 @@
         {% if item.trend == 'improving' %}Improving by {{ item.score_delta }} points since the previous title snapshot.
         {% elif item.trend == 'worsening' %}Down {{ item.score_delta|abs }} points since the previous title snapshot.
         {% elif item.trend == 'stable' %}Unchanged since the previous title snapshot.
-        {% else %}First title-health snapshot recorded.
+        {% else %}First recorded score.
         {% endif %}
       </p>
       {% if item.recent_scores %}<p class="muted">Recent scores: {{ item.recent_scores|join(' → ') }}</p>{% endif %}
@@ -29,7 +29,7 @@
     </article>
     {% endfor %}
   </div>
-  <p class="mie-score-note">This is a review queue, not an automatic repair system. Opening or refreshing Library Health does not change your media files.</p>
+  <p class="mie-score-note">Opening or refreshing Library Health does not change your media files.</p>
 </section>
 {% elif attention_snapshot_run_id and attention_snapshot_current %}
 <section id="titles-needing-attention" class="panel mie-score-panel" aria-labelledby="titles-needing-attention-title">

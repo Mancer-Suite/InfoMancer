@@ -36,7 +36,7 @@ class CollectionMenuVisibilityTests(unittest.TestCase):
         self.assertNotIn(".collection-picker-card:hover .collection-picker-card-actions", collection_css)
         self.assertNotIn(".collection-picker-card:focus-within .collection-picker-card-actions", collection_css)
 
-    def test_picker_disables_cover_card_paint_containment_for_hover_lift(self) -> None:
+    def test_picker_disables_cover_card_paint_containment_for_action_menu(self) -> None:
         modern_css = self.read("app/static/modern.css")
         collection_css = self.read("app/static/collection-menu-visibility.css")
 
@@ -47,22 +47,22 @@ class CollectionMenuVisibilityTests(unittest.TestCase):
         self.assertIn("contain: none !important", collection_css)
         self.assertIn("overflow: visible !important", collection_css)
 
-    def test_picker_artwork_uses_exact_library_cover_hover_animation(self) -> None:
+    def test_picker_artwork_uses_stationary_library_hover_treatment(self) -> None:
         template = self.read("app/templates/collections.html")
         library_css = self.read("app/static/library.css")
         release_css = self.read("app/static/release-081-collections.css")
 
         self.assertIn('class="cover-art collection-art"', template)
         self.assertIn(".cover-card:hover .cover-art", library_css)
-        self.assertIn("transform:translateY(-4px)", library_css)
+        self.assertIn("transform:none", library_css)
         self.assertIn(".collection-card:hover .collection-art", library_css)
         self.assertIn(".collection-picker-card .collection-art", release_css)
         self.assertIn("box-sizing: border-box", release_css)
         self.assertIn("aspect-ratio: 16 / 9", release_css)
         self.assertIn(".collection-picker-card .collection-card:hover .collection-art", release_css)
-        self.assertIn("transform: translateY(-4px)", release_css)
+        self.assertIn("transform: none", release_css)
         self.assertIn("border-color: var(--lime)", release_css)
-        self.assertIn("box-shadow: 0 15px 34px rgba(0, 0, 0, .42)", release_css)
+        self.assertIn("box-shadow: none", release_css)
         self.assertNotIn(".collection-picker-card:hover .collection-art", release_css)
         self.assertNotIn(".collection-picker-card:focus-within .collection-art", release_css)
         self.assertNotIn(".collection-picker-card::before", release_css)
@@ -80,7 +80,7 @@ class CollectionMenuVisibilityTests(unittest.TestCase):
         self.assertIn("background: rgba(3, 7, 10, .7)", release_css)
         self.assertIn("pointer-events: none", release_css)
         self.assertIn(".collection-picker-card:hover .cover-card-actions", release_css)
-        self.assertIn("transform: translateY(-4px) !important", release_css)
+        self.assertIn("transform: none !important", release_css)
         self.assertIn(".collection-picker-card .cover-row-menu", release_css)
         self.assertIn("z-index: 1", release_css)
 

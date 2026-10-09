@@ -141,19 +141,19 @@ class UiPolishRegressionTests(unittest.TestCase):
         self.assertIn("Refresh Metadata", toolbar)
         self.assertIn(".library-bulk-favorite", styles)
 
-    def test_library_cover_grid_fills_both_page_edges_and_captions_are_inset(self):
+    def test_library_cover_grid_keeps_regular_gaps_and_aligned_captions(self):
         grid = (STATIC / "library-performance.css").read_text(encoding="utf-8")
         styles = (STATIC / "library-selection.css").read_text(encoding="utf-8")
         self.assertIn("#cover-library.cover-library {", grid)
         self.assertIn("repeat(auto-fill, minmax(min(100%, var(--cover-size)), var(--cover-size)))", grid)
-        self.assertIn("justify-content: space-between", grid)
+        self.assertIn("justify-content: start", grid)
         self.assertIn("#cover-library.cover-library > .cover-card", grid)
         self.assertIn("width: min(var(--cover-size), 100%)", grid)
         self.assertNotIn("justify-content: flex-start !important", styles)
         self.assertIn("#cover-library .cover-card-link > strong", styles)
-        self.assertIn("padding: 8px 8px 0", styles)
+        self.assertIn("padding: 0 4px", styles)
         self.assertIn("#cover-library .cover-card-meta", styles)
-        self.assertIn("padding: 3px 8px 8px", styles)
+        self.assertIn("padding: 0 4px 4px", styles)
 
     def test_library_bulk_organize_is_modal_and_retains_bulk_favorites(self):
         toolbar = (STATIC / "library-selection-toolbar.js").read_text(encoding="utf-8")
