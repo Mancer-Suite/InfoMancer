@@ -6,7 +6,7 @@
 .source-type-hints .kind { flex:0 0 58px; text-align:center; }
 .manual-source { display:grid; gap:13px; margin-top:2px; padding-top:14px; border-top:1px solid var(--line); }
 .manual-source-head { display:grid; gap:2px; }
-.manual-source-head small { color:var(--lime); font-size:9px; font-weight:900; letter-spacing:.12em; }
+.manual-source-head small { color:var(--muted); font-size:12px; font-weight:600; letter-spacing:.06em; }
 .manual-source-head strong { color:var(--text); font-size:13px; }
 .manual-source > form { margin:0; }
 .manual-source .stack { gap:12px; }

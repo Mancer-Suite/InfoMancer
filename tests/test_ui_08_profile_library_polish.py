@@ -7,12 +7,12 @@ STATIC = ROOT / "app/static"
 
 
 class ProfileLibraryPolishContracts(unittest.TestCase):
-    def test_operational_dashboard_uses_optical_inset_and_six_recent_titles(self):
+    def test_operational_dashboard_aligns_summary_and_uses_six_recent_titles(self):
         template = (ROOT / "app/templates/dashboard_command.html").read_text(encoding="utf-8")
         css = (STATIC / "dashboard-command.css").read_text(encoding="utf-8")
         self.assertIn("recent[:6]", template)
         self.assertIn(".home-ops-summary", css)
-        self.assertIn("padding-left:5px", css)
+        self.assertIn("padding-left:0", css)
 
     def test_repeated_library_title_click_toggles_inspector_closed(self):
         core = (STATIC / "workspace-core.js").read_text(encoding="utf-8")

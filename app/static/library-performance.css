@@ -80,8 +80,8 @@ body.has-app-sidebar main.shell:has(> .catalog-tabs) > :is(
    the Library but must not make the posters themselves change size. */
 #cover-library.cover-library {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, var(--cover-size)), var(--cover-size)));
-  justify-content: space-between;
-  column-gap: clamp(12px, 1.15vw, 18px);
+  justify-content: start;
+  column-gap: 16px;
 }
 #cover-library.cover-library > .cover-card {
   width: min(var(--cover-size), 100%);

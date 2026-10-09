@@ -30,12 +30,12 @@ th,
 .cover-card-link > strong,
 .home-recent-link > strong {
   display: -webkit-box;
-  min-height: 3.9em;
-  max-height: 3.9em;
+  min-height: 2.7em;
+  max-height: 2.7em;
   overflow: hidden;
-  line-height: 1.3;
+  line-height: 1.35;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
 }
 
 /* Fixed-size popovers remain useful on desktop but may never exceed the viewport. */

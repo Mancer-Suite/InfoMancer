@@ -32,8 +32,8 @@ body .settings-section-nav {
   margin: 0 0 18px;
   padding: 5px;
   border: 1px solid var(--line);
-  border-radius: 9px;
-  background: #0d1319;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
   overflow-x: auto;
   scrollbar-width: thin;
 }
@@ -44,7 +44,7 @@ body .settings-section-nav a {
   border: 1px solid transparent;
   border-radius: 6px;
   color: #9eafbf;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.15;
   text-decoration: none;
@@ -58,12 +58,12 @@ body .settings-section-nav a:hover {
 }
 
 body .settings-section-nav a.active {
-  border-color: #4a672d;
-  border-bottom-color: #4a672d;
-  background: #162014;
-  color: var(--lime);
-  font-weight: 750;
-  box-shadow: inset 0 0 0 1px rgba(185,245,66,.04);
+  border-color: var(--line);
+  border-bottom-color: var(--line);
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: inset 0 -2px var(--lime);
 }
 
 body .settings-page-grid {
@@ -77,14 +77,13 @@ body .settings-handoff {
   min-width: 0;
   box-sizing: border-box;
   border-color: #2d3945;
-  background:
-    linear-gradient(145deg, rgba(255,255,255,.015), transparent 42%),
-    #121921;
+  background: var(--surface);
   box-shadow: none;
 }
 
 body .settings-page-grid > .settings-card:not(.full-width) {
-  height: 100%;
+  height: auto;
+  align-self: start;
 }
 
 /* auth.css intentionally keeps standalone account forms narrow. Inside the App
@@ -253,6 +252,8 @@ body .user-management-empty {
 }
 
 body .settings-card {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 14px;
 }
 
@@ -279,6 +280,8 @@ body .scheduled-task-card > .actions:last-child {
 }
 
 body .settings-card-head {
+  flex-wrap: wrap;
+  min-width: 0;
   min-height: 42px;
 }
 
@@ -352,8 +355,8 @@ body .settings-save-bar {
   box-sizing: border-box;
   padding: 10px 14px;
   border-radius: 8px;
-  border-color: #4d682b;
-  background: rgba(16,28,17,.97);
+  border-color: var(--line);
+  background: var(--surface);
 }
 
 body .settings-preview {
@@ -458,7 +461,7 @@ body .settings-handoff {
 
   body .settings-section-nav a {
     padding: 9px 11px;
-    font-size: 15px;
+    font-size: 14px;
   }
 
   body .setup-assistant-settings {
@@ -576,3 +579,13 @@ body :is(#storage,#fingerprints,#safety,#backups,#updates,#media-information,#lo
 .tvdb-credential-status.success { color:var(--lime); }
 .tvdb-credential-status.error { color:#ff8b8b; }
 @media(max-width:600px){.tvdb-credential-form{padding:18px}.tvdb-credential-fields label>span{display:grid;gap:2px}.tvdb-credential-dialog .workspace-dialog-actions{align-items:stretch;flex-direction:column-reverse}.tvdb-credential-dialog .workspace-dialog-actions .button{width:100%}}
+
+@media(max-width:760px){
+  body .settings-card-head .button-row { display:flex; flex-wrap:wrap; min-width:0; max-width:100%; }
+  body .settings-card-head .button-row form { max-width:100%; }
+  body .settings-card-head .button-row .button { max-width:100%; white-space:normal; }
+}
+
+body .settings-card > *,
+body .settings-card form,
+body .settings-card label { min-width:0; max-width:100%; }

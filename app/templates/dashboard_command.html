@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<link rel="stylesheet" href="{{ url_for('static', path='dashboard-command.css') }}?v={{ app_version }}">
+<link rel="stylesheet" href="{{ url_for('static', path='dashboard-command.css') }}?v={{ static_version }}">
 <main class="home-ops">
   <section class="home-ops-overview">
     <div class="home-ops-today">
@@ -28,20 +28,20 @@
     </div>
 
     <aside class="home-ops-health{% if mie_summary.critical %} critical{% elif mie_summary.warning %} warning{% else %} clear{% endif %}">
-      <div class="home-health-grid" aria-hidden="true"></div>
-      <div class="home-ops-health-top"><span class="home-pulse"><i></i></span><span>MEDIA INTELLIGENCE</span><b>{{ 'LIVE' if mie_summary.last_analyzed_at else 'READY' }}</b></div>
+      <div class="home-ops-health-top"><span>LIBRARY HEALTH</span><b>{{ 'ANALYZED' if mie_summary.last_analyzed_at else 'NOT ANALYZED' }}</b></div>
       {% if mie_summary.last_analyzed_at %}
         {% if mie_summary.critical %}
         <strong class="home-health-focus">{{ '{:,}'.format(mie_summary.critical) }}</strong><h2>critical finding{% if mie_summary.critical != 1 %}s{% endif %}</h2><p>These are the findings worth reviewing first.</p>
         {% elif mie_summary.warning %}
         <strong class="home-health-focus">{{ '{:,}'.format(mie_summary.warning) }}</strong><h2>warning{% if mie_summary.warning != 1 %}s{% endif %}</h2><p>No critical findings. Warnings are ready when you are.</p>
         {% else %}
-        <strong class="home-health-clear-mark">Clear</strong><h2>Nothing needs your attention</h2><p>The last analysis found no active critical or warning conditions.</p>
+        <h2>Nothing needs your attention</h2><p>The last analysis found no active critical or warning conditions.</p>
         {% endif %}
+        <small class="home-health-checked">Last analyzed {{ local_time(mie_summary.last_analyzed_at) }}</small>
         <div class="home-health-facts"><span><b>{{ '{:,}'.format(mie_summary.active) }}</b>Total findings</span><span><b>{{ '{:,}'.format(mie_summary.warning) }}</b>Warnings</span></div>
         <a class="home-health-button" href="/library-health">{% if mie_summary.critical %}Review critical findings{% else %}Open Library Health{% endif %}<span>&rarr;</span></a>
       {% else %}
-        <strong class="home-health-clear-mark">Ready</strong><h2>Analyze Library Health</h2><p>Run the first read-only analysis to surface explainable catalog findings.</p>
+        <h2>Analyze Library Health</h2><p>Run the first read-only analysis to surface explainable catalog findings.</p>
         <a class="home-health-button" href="/library-health">Open Library Health <span>&rarr;</span></a>
       {% endif %}
     </aside>
@@ -88,7 +88,7 @@
     </section>
 
     <aside class="home-ops-panel home-attention">
-      <div class="home-ops-panel-head"><div><p class="eyebrow">NEEDS ATTENTION</p><h2>Useful next steps</h2></div></div>
+      <div class="home-ops-panel-head"><div><p class="eyebrow">NEEDS ATTENTION</p><h2>Findings and activity</h2></div></div>
       <div class="home-attention-list">
         <a href="/library-health"><span><b class="danger">{{ '{:,}'.format(mie_summary.critical) }}</b><strong>Critical findings</strong><small>Highest-priority Library Health findings</small></span><i>&rarr;</i></a>
         <a href="/library-health"><span><b>{{ '{:,}'.format(mie_summary.warning) }}</b><strong>Warnings</strong><small>Reviewable health conditions</small></span><i>&rarr;</i></a>
@@ -106,7 +106,7 @@
   {% endif %}
 
   <section class="home-ops-favorites">
-    <div class="home-ops-panel-head"><div><p class="eyebrow">FAVORITES</p><h2>Kept close at hand</h2><p class="home-favorite-count">{{ counts.favorites }} saved item{% if counts.favorites != 1 %}s{% endif %}</p></div><a href="/favorites">View all &rarr;</a></div>
+    <div class="home-ops-panel-head"><div><p class="eyebrow">FAVORITES</p><h2>Your favorites</h2><p class="home-favorite-count">{{ counts.favorites }} saved item{% if counts.favorites != 1 %}s{% endif %}</p></div><a href="/favorites">View all &rarr;</a></div>
     {% if favorites %}
     <div class="home-favorite-strip">
       {% for title in favorites[:6] %}

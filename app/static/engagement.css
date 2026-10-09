@@ -154,7 +154,7 @@
 .setup-handoff-banner strong,.setup-handoff-banner span{display:block}.setup-handoff-banner span{color:var(--muted);font-size:.8rem;margin-top:.25rem}
 .setup-assistant-page{margin-top:-1.25rem}
 .setup-assistant-heading{margin-bottom:.75rem}
-.setup-assistant-heading h1{margin:.2rem 0 .35rem;font-size:clamp(2.5rem,6vw,4.25rem)}
+.setup-assistant-heading h1{margin:.2rem 0 .35rem;font-size:var(--page-title-size)}
 .setup-assistant-heading p:last-child{margin:.25rem 0}
 .setup-assistant-page .setup-progress{margin:.9rem 0 1rem}
 .setup-assistant-page .setup-progress a{padding:.75rem 1rem}

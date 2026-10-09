@@ -7,17 +7,6 @@
    zoom, but several high-frequency labels, list rows, cover captions, and inspector
    facts were too small for comfortable scanning. Keep the increase deliberately
    modest while raising contrast and using more of wide desktop viewports. */
-:root {
-  --text: #f5f7fa;
-  --muted: #9ba9b8;
-}
-body {
-  font-size: 16px;
-}
-.button,
-button {
-  font-size: 14px;
-}
 summary {
   font-size: 13px;
 }
@@ -40,12 +29,13 @@ body.has-app-sidebar main.shell:has(> .catalog-tabs) {
 }
 .cover-library {
   justify-content: start;
-  gap: 30px clamp(18px, 1.6vw, 28px);
+  gap: 24px 16px;
 }
 .cover-card-link > strong {
-  margin-top: 11px;
-  color: #f7f9fb;
-  font-size: 15px;
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 550;
   line-height: 1.35;
 }
 .cover-card-meta {
@@ -280,7 +270,7 @@ body.has-app-sidebar .media-dossier .season-collapse-toolbar button {
   pointer-events: none;
 }
 .cover-card:hover {
-  transform: translateY(-4px);
+  transform: none;
 }
 .cover-card:hover .cover-art,
 .cover-card:hover .cover-card-actions {
@@ -487,7 +477,7 @@ body.has-app-sidebar .media-dossier .season-collapse-toolbar button {
   gap: 28px;
   margin: 4px 0 18px;
 }
-.review-page-head h1 { margin: 2px 0 7px; font-size: clamp(34px, 4vw, 54px); letter-spacing: -.045em; }
+.review-page-head h1 { margin: 2px 0 7px; font-size: var(--page-title-size); letter-spacing: -.025em; }
 .review-page-head p:not(.eyebrow) { max-width: 760px; margin: 0; color: var(--muted); line-height: 1.55; }
 .review-page-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .review-page-actions form { margin: 0; }
@@ -498,7 +488,7 @@ body.has-app-sidebar .media-dossier .season-collapse-toolbar button {
   grid-template-columns: repeat(5, minmax(120px, 1fr));
   border: 1px solid #2b3946;
   border-radius: 13px;
-  background: linear-gradient(145deg, rgba(18,25,33,.94), rgba(10,15,21,.96));
+  background: var(--surface);
   overflow: hidden;
 }
 .review-summary-strip > div { display: grid; gap: 2px; min-height: 86px; align-content: center; padding: 13px 18px; border-right: 1px solid var(--line); }

@@ -15,6 +15,7 @@ htmlcov/
 .vscode/
 data/
 data-sandbox/
+data-design/
 data-before-reset/
 sandbox-media/
 
